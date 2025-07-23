@@ -1,0 +1,8 @@
+version: '1.0'
+name: auto-detected-contracts
+validation:
+  mode: strict
+  rules:
+    missing_tables: error
+    missing_columns: error
+    type_mismatches: warning

@@ -1,0 +1,8 @@
+- id: contract-validation
+  name: Data Contract Validation
+  description: Validate data contracts between DBT models and API frameworks
+  entry: retl-validator validate --mode fast
+  language: python
+  files: '^(.*models.*\.(sql|py)|\.retl-validator\.yml)$'
+  require_serial: true
+  pass_filenames: false
