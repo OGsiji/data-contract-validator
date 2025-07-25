@@ -1,0 +1,10 @@
+name: 'example_project'
+version: '1.0.0'
+config-version: 2
+
+model-paths: ["models"]
+target-path: "target"
+
+models:
+  example_project:
+    materialized: view

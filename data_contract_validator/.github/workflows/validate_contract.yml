@@ -1,0 +1,73 @@
+
+name: 🔍 Validate Data Contracts
+
+on:
+  pull_request:
+    paths:
+      - 'models/**/*.sql'      # DBT models
+      - 'dbt_project.yml'      # DBT config
+      - '**/*models*.py'       # API models
+  
+  workflow_dispatch:            # Manual trigger
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  validate-contracts:
+    name: Contract Validation
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install Data Contract Validator
+      run: pip install data-contract-validator
+    
+    - name: Validate data contracts
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # For private API repos, add this secret:
+        # API_REPO_TOKEN: ${{ secrets.API_REPO_TOKEN }}
+      run: |
+        contract-validator validate \
+          --dbt-project . \
+          --fastapi-repo "YOUR-ORG/YOUR-API-REPO" \
+          --fastapi-path "app/models.py" \
+          --github-token "$GITHUB_TOKEN" \
+          --output github
+    
+    - name: Comment on PR (if validation fails)
+      if: failure()
+      uses: actions/github-script@v6
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `## ❌ Data Contract Validation Failed
+            
+            Your changes don't satisfy API requirements.
+            
+            **Common issues:**
+            - Missing required columns in DBT model
+            - Type mismatches between DBT and API
+            - API expects tables that DBT doesn't provide
+            
+            **How to fix:**
+            1. Check the validation logs above
+            2. Add missing columns to your DBT model
+            3. Or update API models to match DBT output
+            
+            ---
+            🤖 Automated by [Data Contract Validator](https://github.com/your-org/data-contract-validator)`
+          })
