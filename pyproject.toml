@@ -1,6 +1,5 @@
-
 [build-system]
-requires = ["setuptools>=45", "wheel"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -10,10 +9,10 @@ description = "Prevent production API breaks by validating data contracts betwee
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
-    {name = "Your Name", email = "your.email@example.com"}
+    {name = "Ogunniran Siji", email = "ogunniransiji@gmail.com"}
 ]
 maintainers = [
-    {name = "Your Name", email = "your.email@example.com"}
+    {name = "Ogunniran Siji", email = "ogunniransiji@gmail.com"}
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -28,6 +27,8 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Quality Assurance",
     "Topic :: Software Development :: Testing",
+    "Topic :: Database",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
 ]
 requires-python = ">=3.8"
 dependencies = [
@@ -35,6 +36,10 @@ dependencies = [
     "PyYAML>=6.0",
     "requests>=2.25.0",
     "click>=8.0.0",
+]
+keywords = [
+    "dbt", "fastapi", "contract-testing", "api-validation", 
+    "data-engineering", "schema-validation", "ci-cd", "devops"
 ]
 
 [project.optional-dependencies]
@@ -45,6 +50,8 @@ dev = [
     "flake8>=4.0.0",
     "mypy>=0.991",
     "pre-commit>=2.20.0",
+    "build>=0.8.0",
+    "twine>=4.0.0",
 ]
 test = [
     "pytest>=7.0.0",
@@ -54,13 +61,26 @@ test = [
 
 [project.scripts]
 contract-validator = "data_contract_validator.cli:main"
-dbt-contract-validator = "data_contract_validator.cli:main"
+retl-validator = "data_contract_validator.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/your-org/data-contract-validator"
-Documentation = "https://github.com/your-org/data-contract-validator/blob/main/docs/"
-Repository = "https://github.com/your-org/data-contract-validator"
-"Bug Reports" = "https://github.com/your-org/data-contract-validator/issues"
+Homepage = "https://github.com/OGsiji/retl_validator"
+Documentation = "https://github.com/OGsiji/retl_validator/blob/main/README.md"
+Repository = "https://github.com/OGsiji/retl_validator"
+"Bug Reports" = "https://github.com/OGsiji/retl_validator/issues"
+Changelog = "https://github.com/OGsiji/retl_validator/blob/main/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["data_contract_validator*"]
+exclude = ["tests*", "examples*"]
+
+[tool.setuptools.package-data]
+data_contract_validator = [
+    "templates/*.yml",
+    "templates/*.yaml",
+    "py.typed",
+]
 
 [tool.black]
 line-length = 88
@@ -82,11 +102,12 @@ extend-exclude = '''
 
 [tool.pytest.ini_options]
 minversion = "6.0"
-addopts = "-ra -q --strict-markers"
+addopts = "-ra -q --strict-markers --cov=data_contract_validator --cov-report=term-missing"
 testpaths = ["tests"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
 ]
 
 [tool.mypy]
@@ -94,3 +115,27 @@ python_version = "3.8"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+show_error_codes = true
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["data_contract_validator"]
+omit = [
+    "*/tests/*",
+    "*/examples/*",
+    "setup.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
