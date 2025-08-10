@@ -1,4 +1,3 @@
-
 # data_contract_validator/extractors/__init__.py
 """
 Schema extractors for different frameworks.
@@ -10,6 +9,6 @@ from .fastapi import FastAPIExtractor
 
 __all__ = [
     "BaseExtractor",
-    "DBTExtractor", 
+    "DBTExtractor",
     "FastAPIExtractor",
 ]

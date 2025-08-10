@@ -16,7 +16,7 @@ from .extractors.fastapi import FastAPIExtractor
 
 __all__ = [
     "ContractValidator",
-    "ValidationResult", 
+    "ValidationResult",
     "ValidationIssue",
     "IssueSeverity",
     "DBTExtractor",

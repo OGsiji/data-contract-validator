@@ -9,14 +9,16 @@ from typing import Dict, List, Optional, Any
 
 class IssueSeverity(Enum):
     """Severity levels for validation issues."""
+
     CRITICAL = "critical"  # Will break API
-    WARNING = "warning"    # Might cause issues  
-    INFO = "info"         # Good to know
+    WARNING = "warning"  # Might cause issues
+    INFO = "info"  # Good to know
 
 
 @dataclass
 class ValidationIssue:
     """Represents a single validation issue."""
+
     severity: IssueSeverity
     table: str
     column: Optional[str]
@@ -57,6 +59,7 @@ class ValidationIssue:
 @dataclass
 class Schema:
     """Represents a table schema."""
+
     name: str
     columns: List[Dict[str, Any]]
     source: str = "unknown"
@@ -77,6 +80,7 @@ class Schema:
 @dataclass
 class ValidationResult:
     """Result of contract validation."""
+
     success: bool
     issues: List[ValidationIssue]
     source_schemas: Dict[str, Schema]
@@ -109,9 +113,3 @@ class ValidationResult:
             "info_items": len(self.info_items),
             "issues": [issue.to_dict() for issue in self.issues],
         }
-
-
-
-
-
-

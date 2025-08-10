@@ -8,6 +8,7 @@ import shutil
 from pathlib import Path
 from typing import Dict, Any
 
+
 @pytest.fixture
 def temp_dir():
     """Create a temporary directory for tests."""
@@ -15,12 +16,13 @@ def temp_dir():
     yield Path(temp_dir)
     shutil.rmtree(temp_dir)
 
+
 @pytest.fixture
 def sample_dbt_project(temp_dir):
     """Create a sample DBT project for testing."""
     project_dir = temp_dir / "dbt_project"
     project_dir.mkdir()
-    
+
     # Create dbt_project.yml
     dbt_config = """
 name: 'test_project'
@@ -30,11 +32,11 @@ model-paths: ["models"]
 target-path: "target"
 """
     (project_dir / "dbt_project.yml").write_text(dbt_config)
-    
+
     # Create models directory
     models_dir = project_dir / "models"
     models_dir.mkdir()
-    
+
     # Create test model
     test_model = """
 select
@@ -46,13 +48,14 @@ select
 from raw_users
 """
     (models_dir / "users.sql").write_text(test_model)
-    
+
     return project_dir
+
 
 @pytest.fixture
 def sample_fastapi_content():
     """Sample FastAPI models content."""
-    return '''
+    return """
 from pydantic import BaseModel
 from datetime import datetime
 
@@ -62,7 +65,8 @@ class User(BaseModel):
     first_name: str
     last_name: str
     created_at: datetime
-'''
+"""
+
 
 @pytest.fixture
 def sample_schemas():
@@ -78,7 +82,7 @@ def sample_schemas():
                     {"name": "last_name", "type": "varchar", "required": True},
                     {"name": "created_at", "type": "timestamp", "required": True},
                 ],
-                "source": "test"
+                "source": "test",
             }
         },
         "target": {
@@ -91,7 +95,7 @@ def sample_schemas():
                     {"name": "last_name", "type": "varchar", "required": True},
                     {"name": "created_at", "type": "timestamp", "required": True},
                 ],
-                "source": "test"
+                "source": "test",
             }
-        }
+        },
     }

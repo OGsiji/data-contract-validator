@@ -14,7 +14,7 @@ class BaseExtractor(ABC):
     def extract_schemas(self) -> Dict[str, Schema]:
         """
         Extract schemas from the source.
-        
+
         Returns:
             Dict mapping table names to Schema objects
         """
@@ -24,7 +24,7 @@ class BaseExtractor(ABC):
         """Convert Python type hints to SQL types."""
         type_mappings = {
             "str": "varchar",
-            "int": "integer", 
+            "int": "integer",
             "float": "float",
             "bool": "boolean",
             "datetime": "timestamp",
@@ -32,12 +32,12 @@ class BaseExtractor(ABC):
             "list": "json",
             "dict": "json",
         }
-        
+
         # Handle Optional types
         if "optional" in python_type.lower():
             inner_type = python_type.lower().replace("optional[", "").replace("]", "")
             return self._python_to_sql_type(inner_type)
-        
+
         return type_mappings.get(python_type.lower(), "varchar")
 
     def _normalize_column_name(self, name: str) -> str:
