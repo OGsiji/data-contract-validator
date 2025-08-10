@@ -674,23 +674,23 @@ def setup_precommit(install_hooks: bool):
     precommit_config = Path(".pre-commit-config.yaml")
 
     if not precommit_config.exists():
+        """Generate correct pre-commit config."""
         config_content = """repos:
-  - repo: https://github.com/OGsiji/retl_validator
-    rev: v1.0.0
-    hooks:
-      - id: contract-validation
-        name: Validate Data Contracts
-        description: Prevent production breaks with contract validation
-        files: '^(.*models.*\\.(sql|py)|\\.retl-validator\\.yml|dbt_project\\.yml)$'
+    - repo: https://github.com/OGsiji/data-contract-validator
+        rev: main
+        hooks:
+        - id: contract-validation
+            name: Validate Data Contracts
+            files: '^(.*models.*\\.(sql|py)|\\.retl-validator\\.yml|dbt_project\\.yml)$'
 
-  # Add other hooks here
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0
-    hooks:
-      - id: trailing-whitespace
-      - id: end-of-file-fixer
-      - id: check-yaml
-"""
+    - repo: https://github.com/pre-commit/pre-commit-hooks
+        rev: v4.4.0
+        hooks:
+        - id: trailing-whitespace
+        - id: end-of-file-fixer
+        - id: check-yaml
+    """
+
 
         with open(precommit_config, "w") as f:
             f.write(config_content)

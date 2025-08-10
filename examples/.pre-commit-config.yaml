@@ -1,0 +1,14 @@
+repos:
+  - repo: https://github.com/OGsiji/data-contract-validator
+    rev: main
+    hooks:
+      - id: contract-validation
+        name: Validate Data Contracts
+        files: '^(.*models.*\.(sql|py)|\.retl-validator\.yml|dbt_project\.yml)$'
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
