@@ -1,0 +1,13 @@
+include README.md
+include LICENSE
+include requirements.txt
+include requirements-dev.txt
+include pyproject.toml
+include CHANGELOG.md
+recursive-include data_contract_validator/templates *.yml *.yaml
+recursive-include data_contract_validator *.py
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+recursive-exclude tests *
+recursive-exclude examples *
+recursive-exclude docs *
