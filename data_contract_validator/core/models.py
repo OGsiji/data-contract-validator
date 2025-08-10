@@ -109,3 +109,9 @@ class ValidationResult:
             "info_items": len(self.info_items),
             "issues": [issue.to_dict() for issue in self.issues],
         }
+
+
+
+
+
+
