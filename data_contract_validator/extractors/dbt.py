@@ -1,6 +1,6 @@
 # data_contract_validator/extractors/dbt.py
 """
-DBT schema extractor - simplified version of your working code.
+DBT schema extractor
 """
 
 import json

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "data-contract-validator"
-version = "1.0.1"
-description = "Prevent production API breaks by validating data contracts between DBT models and API frameworks"
+version = "1.0.3"
+description = "Adding pre-commit-fixes"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [

@@ -1,6 +1,6 @@
 # data_contract_validator/extractors/fastapi.py
 """
-FastAPI/Pydantic schema extractor - simplified version of your working code.
+FastAPI/Pydantic schema extractor
 """
 
 import ast
