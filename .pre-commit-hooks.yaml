@@ -1,8 +1,13 @@
 - id: contract-validation
   name: Data Contract Validation
   description: Validate data contracts between DBT models and API frameworks
-  entry: retl-validator validate --mode fast
+  entry: contract-validator validate
   language: python
-  files: '^(.*models.*\.(sql|py)|\.retl-validator\.yml)$'
+  files: '^(.*models.*\.(sql|py)|\.retl-validator\.yml|dbt_project\.yml)$'
   require_serial: true
   pass_filenames: false
+  additional_dependencies:
+    - pydantic>=2.0.0
+    - PyYAML>=6.0
+    - requests>=2.25.0
+    - click>=8.0.0

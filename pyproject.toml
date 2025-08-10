@@ -64,11 +64,11 @@ contract-validator = "data_contract_validator.cli:main"
 retl-validator = "data_contract_validator.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/OGsiji/retl_validator"
-Documentation = "https://github.com/OGsiji/retl_validator/blob/main/README.md"
-Repository = "https://github.com/OGsiji/retl_validator"
-"Bug Reports" = "https://github.com/OGsiji/retl_validator/issues"
-Changelog = "https://github.com/OGsiji/retl_validator/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/OGsiji/data-contract-validator"
+Documentation = "https://github.com/OGsiji/data-contract-validator/blob/main/README.md"
+Repository = "https://github.com/OGsiji/data-contract-validator"
+"Bug Reports" = "https://github.com/OGsiji/data-contract-validator/issues"
+Changelog = "https://github.com/OGsiji/data-contract-validator/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["."]

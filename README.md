@@ -3,7 +3,7 @@
 > **Prevent production API breaks by validating data contracts between your data pipelines and API frameworks**
 
 [![PyPI version](https://badge.fury.io/py/data-contract-validator.svg)](https://badge.fury.io/py/data-contract-validator)
-[![Tests](https://github.com/your-org/data-contract-validator/workflows/Tests/badge.svg)](https://github.com/your-org/data-contract-validator/actions)
+[![Tests](https://github.com/OGsiji/data-contract-validator/workflows/Tests/badge.svg)](https://github.com/OGsiji/data-contract-validator/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## 🎯 **What This Solves**
@@ -26,66 +26,65 @@ DBT Models          Contract           FastAPI Models
 pip install data-contract-validator
 ```
 
+### **30-Second Setup**
+```bash
+# 1. Initialize in your project
+contract-validator init --interactive
+
+# 2. Test setup
+contract-validator test
+
+# 3. Validate contracts
+contract-validator validate
+
+# 4. Commit and push - you're protected! 🛡️
+```
+
 ### **Basic Usage**
 ```bash
 # Validate local DBT project against FastAPI models
 contract-validator validate \
   --dbt-project ./my-dbt-project \
-  --fastapi-models ./my-api/models.py
+  --fastapi-local ./my-api/models.py
 
-# Validate across repositories (perfect for microservices)
+# Validate across repositories (microservices)
 contract-validator validate \
   --dbt-project . \
   --fastapi-repo "my-org/my-api-repo" \
   --fastapi-path "app/models.py"
 ```
 
-### **GitHub Actions Integration**
-```yaml
-# .github/workflows/validate-contracts.yml
-name: Validate Data Contracts
-on: [pull_request]
+## 🔍 **Real Example: Production Validation**
 
-jobs:
-  validate:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'
-    
-    - name: Install validator
-      run: pip install data-contract-validator
-    
-    - name: Validate contracts
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        contract-validator validate \
-          --dbt-project . \
-          --fastapi-repo "my-org/my-api" \
-          --github-token "$GITHUB_TOKEN"
+**Actual output from a production analytics project:**
+
+```bash
+$ contract-validator validate
+
+🔍 Starting contract validation...
+📊 Extracting source schemas...
+   ✅ Found 14 DBT models (user_analytics_summary: 54 columns)
+🎯 Extracting target schemas...  
+   ✅ Found 3 FastAPI models
+🔍 Validating schema compatibility...
+
+🛡️ Results:
+✅ PASSED - 0 critical issues (no production breaks!)
+⚠️  42 warnings (type mismatches to review)
+
+Issues caught:
+⚠️  user_analytics_summary.age_years: source 'varchar' vs target 'integer'
+⚠️  user_analytics_summary.is_verified: source 'varchar' vs target 'boolean'
+⚠️  user_analytics_summary.user_created_at: source 'varchar' vs target 'timestamp'
+
+🎉 Your API contracts are protected!
 ```
 
-## 🔍 **What It Validates**
+## 🚨 **What It Prevents**
 
-### **❌ Critical Issues (Block Deployment)**
-- **Missing tables**: API expects `user_analytics` but DBT doesn't provide it
-- **Missing required columns**: API requires `total_revenue` but DBT model doesn't have it
-
-### **⚠️ Warnings (Non-blocking)**
-- **Type mismatches**: DBT provides `varchar` but API expects `integer`
-- **Missing optional columns**: API can handle missing optional fields
-
-### **ℹ️ Info (Good to Know)**
-- **Extra columns**: DBT provides columns that API doesn't use
-
-## 🎯 **Real-World Example**
-
-### **Before (Production Breaks) 💥**
+### **Before Data Contract Validation:**
 ```sql
--- DBT model changes
+-- Analytics team changes DBT model
 select
     user_id,
     email,
@@ -95,7 +94,7 @@ from users
 ```
 
 ```python
-# FastAPI model (unchanged)
+# API team's FastAPI model (unchanged)
 class UserAnalytics(BaseModel):
     user_id: str
     email: str
@@ -103,130 +102,223 @@ class UserAnalytics(BaseModel):
     revenue: float
 ```
 
-**Result:** API breaks in production 💀
+**Result:** 💥 **Production API breaks**, angry customers, 2AM debugging
 
-### **After (Caught by Validator) ✅**
+### **After Data Contract Validation:**
 ```bash
+$ git push
+
 ❌ VALIDATION FAILED
 💥 user_analytics.total_orders: FastAPI REQUIRES column but DBT removed it
 🔧 Fix: Add 'total_orders' back to DBT model or update FastAPI model
+
+# Push blocked until fixed ✋
 ```
 
-**Result:** Issue caught in CI/CD, production safe! 🛡️
+**Result:** 🛡️ **Production protected**, issues caught in CI/CD
 
-## 🚀 **Supported Frameworks**
+## 🛠️ **Pre-commit Integration**
 
-### **Data Sources**
-- ✅ **DBT** (dbt-core, all adapters)
-- 🔄 **Databricks** (coming soon)
-- 🔄 **Airflow** (coming soon)
-
-### **API Frameworks**  
-- ✅ **FastAPI** (Pydantic + SQLModel)
-- 🔄 **Django** (coming soon)
-- 🔄 **Flask-SQLAlchemy** (coming soon)
-
-*Want to add support for your framework? [See extending guide](docs/extending.md)*
-
-## 📦 **Installation Options**
-
-### **Option 1: PyPI (Recommended)**
+### **Automatic Setup (Recommended)**
 ```bash
-pip install data-contract-validator
+# Initialize with pre-commit support
+contract-validator init --interactive
+contract-validator setup-precommit --install-hooks
+
+# Now every commit validates contracts automatically! 🛡️
 ```
 
-### **Option 2: From Source**
+### **Manual Setup**
+If you prefer manual setup:
+
+1. **Install pre-commit:**
+   ```bash
+   pip install pre-commit
+   ```
+
+2. **Add to `.pre-commit-config.yaml`:**
+   ```yaml
+   repos:
+     - repo: https://github.com/OGsiji/data-contract-validator
+       rev: v1.0.0
+       hooks:
+         - id: contract-validation
+           name: Validate Data Contracts
+           files: '^(.*models.*\.(sql|py)|\.retl-validator\.yml|dbt_project\.yml)$'
+   ```
+
+3. **Install hooks:**
+   ```bash
+   pre-commit install
+   ```
+
+### **How It Works**
 ```bash
-git clone https://github.com/your-org/data-contract-validator
-cd data-contract-validator
-pip install -e .
+$ git add models/user_analytics.sql
+$ git commit -m "update user analytics model"
+
+# Pre-commit automatically runs:
+🔍 Validating Data Contracts...
+✅ Contract validation passed
+[main abc1234] update user analytics model
 ```
 
-### **Option 3: GitHub Actions Only**
+### **On Validation Failure**
+```bash
+$ git commit -m "remove important column"
+
+🔍 Validating Data Contracts...
+❌ CRITICAL: user_analytics.total_revenue missing
+💡 Fix the issue before committing
+
+# Commit blocked until fixed! 🛡️
+```
+
+### **Skip Validation (Emergency Only)**
+```bash
+# Only for emergencies!
+git commit -m "emergency fix" --no-verify
+```
+
+### **Benefits of Pre-commit Integration**
+- ✅ **Catches issues before they reach CI/CD**
+- ✅ **Faster feedback loop** (seconds, not minutes)
+- ✅ **No broken commits** in your git history
+- ✅ **Team protection** - everyone gets validation
+- ✅ **Zero configuration** after setup
+
+## 📦 **GitHub Actions Integration**
+
+Add this to `.github/workflows/validate-contracts.yml`:
+
 ```yaml
-- name: Validate Contracts
-  uses: your-org/data-contract-validator@v1
-  with:
-    dbt-project: '.'
-    fastapi-repo: 'my-org/my-api'
+name: 🛡️ Data Contract Validation
+
+on:
+  pull_request:
+    paths:
+      - 'models/**/*.sql'
+      - 'dbt_project.yml'
+      - '**/*models*.py'
+
+jobs:
+  validate-contracts:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Validate contracts
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        pip install data-contract-validator
+        contract-validator validate
 ```
+
+**Auto-generated when you run `contract-validator init`!**
 
 ## 🔧 **Configuration**
 
-### **Command Line**
+### **Auto-Generated Config (`.retl-validator.yml`)**
+```yaml
+version: '1.0'
+name: 'my-project-contracts'
+
+source:
+  dbt:
+    project_path: '.'
+    auto_compile: true
+
+target:
+  fastapi:
+    # For GitHub repos
+    type: "github"
+    repo: "my-org/my-api"
+    path: "app/models.py"
+    
+    # For local files
+    # type: "local"
+    # path: "../my-api/models.py"
+
+validation:
+  fail_on: ['missing_tables', 'missing_required_columns']
+  warn_on: ['type_mismatches', 'missing_optional_columns']
+```
+
+### **Command Line Options**
 ```bash
 contract-validator validate \
   --dbt-project ./dbt-project \           # DBT project path
   --fastapi-repo "org/repo" \             # GitHub repo
   --fastapi-path "app/models.py" \        # Path to models
   --github-token "$GITHUB_TOKEN" \        # For private repos
-  --output json                           # Output format
+  --output json                           # json, terminal, github
 ```
 
-### **Configuration File**
-```yaml
-# .contract-validator.yml
-version: '1.0'
-sources:
-  dbt:
-    project_path: './dbt-project'
-    auto_update_schemas: true
+## 🚀 **Supported Frameworks**
 
-targets:
-  fastapi:
-    repo: 'my-org/my-api'
-    path: 'app/models.py'
-    
-validation:
-  fail_on: ['missing_tables', 'missing_required_columns']
-  warn_on: ['type_mismatches', 'missing_optional_columns']
-```
+### **Data Sources ✅**
+- **DBT** (all adapters: Snowflake, BigQuery, Redshift, etc.)
 
-## 📊 **Output Formats**
+### **API Frameworks ✅**  
+- **FastAPI** (Pydantic + SQLModel)
+
+### **Coming Soon 🔄**
+- Django, Flask-SQLAlchemy
+- Databricks, Airflow
+- [Request other frameworks](https://github.com/OGsiji/data-contract-validator/issues)
+
+## 🎯 **Output Formats**
 
 ### **Terminal (Default)**
 ```bash
-🔍 Contract Validation Results:
+🛡️ Data Contract Validation Results:
+Status: ✅ PASSED
+Critical: 0 | Warnings: 5
 
-❌ CRITICAL ISSUES:
-  💥 user_analytics.total_revenue: FastAPI expects this column but DBT doesn't provide it
-     🔧 Fix: Add 'total_revenue' to your DBT model
+⚠️  Warnings:
+  user_analytics.age: Type mismatch (varchar vs integer)
+  user_analytics.country: Type mismatch (integer vs varchar)
 
-✅ VALIDATION PASSED (with warnings)
+🎉 Your API contracts are protected!
 ```
 
-### **GitHub Actions**
-```bash
-::error::user_analytics.total_revenue: Missing required column
-::warning::user_analytics.age: Type mismatch (varchar vs integer)
-```
-
-### **JSON**
+### **JSON (for CI/CD)**
 ```json
 {
-  "success": false,
+  "success": true,
+  "critical_issues": 0,
+  "warnings": 5,
   "issues": [
     {
-      "severity": "error",
+      "severity": "warning",
       "table": "user_analytics", 
-      "column": "total_revenue",
-      "message": "FastAPI expects column but DBT doesn't provide it",
-      "suggestion": "Add 'total_revenue' to your DBT model"
+      "column": "age",
+      "message": "Type mismatch: source 'varchar' vs target 'integer'",
+      "suggested_fix": "Update target to expect 'varchar' or fix source type"
     }
   ]
 }
 ```
 
+### **GitHub Actions**
+```bash
+::warning::user_analytics.age: Type mismatch detected
+✅ Contract validation passed - no critical issues
+```
+
 ## 🏗️ **Architecture**
 
+### **Simple Python API**
 ```python
-# Simple, extensible architecture
-from data_contract_validator import ContractValidator
-from data_contract_validator.extractors import DBTExtractor, FastAPIExtractor
+from data_contract_validator import ContractValidator, DBTExtractor, FastAPIExtractor
 
 # Initialize extractors
 dbt = DBTExtractor(project_path='./dbt-project')
-fastapi = FastAPIExtractor(repo='my-org/my-api', path='app/models.py')
+fastapi = FastAPIExtractor.from_github_repo('my-org/my-api', 'app/models.py')
 
 # Run validation
 validator = ContractValidator(source=dbt, target=fastapi)
@@ -238,13 +330,61 @@ if not result.success:
         print(f"💥 {issue.table}.{issue.column}: {issue.message}")
 ```
 
+### **CLI Interface**
+```bash
+# Interactive setup
+contract-validator init --interactive
+
+# Test configuration
+contract-validator test
+
+# Run validation
+contract-validator validate
+
+# Setup pre-commit hooks
+contract-validator setup-precommit --install-hooks
+
+# Multiple output formats
+contract-validator validate --output json
+```
+
+## 🔄 **Development Workflow**
+
+### **With Pre-commit (Recommended)**
+```bash
+# Team workflow with automated validation
+git clone your-dbt-project
+cd your-dbt-project
+
+# One-time setup for new team members
+contract-validator init --interactive
+contract-validator setup-precommit --install-hooks
+
+# Protected development workflow:
+# 1. Make changes to DBT models
+# 2. git add models/my_model.sql
+# 3. git commit -m "update model"  # ← Validation runs here automatically
+# 4. If validation passes → commit succeeds
+# 5. If validation fails → fix issues first
+# 6. git push  # ← CI/CD validation as backup
+```
+
+### **Manual Workflow**
+```bash
+# Traditional workflow
+# 1. Make changes
+# 2. contract-validator validate  # Manual validation
+# 3. git commit
+# 4. git push
+```
+
 ## 🤝 **Contributing**
 
-We love contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+We welcome contributions! This tool is actively used in production.
 
-### **Quick Setup**
+### **Development Setup**
 ```bash
-git clone https://github.com/your-org/data-contract-validator
+git clone https://github.com/OGsiji/data-contract-validator
 cd data-contract-validator
 pip install -e ".[dev]"
 pytest
@@ -252,7 +392,7 @@ pytest
 
 ### **Adding New Extractors**
 ```python
-from data_contract_validator.extractors import BaseExtractor
+from retl_validator.extractors import BaseExtractor
 
 class MyFrameworkExtractor(BaseExtractor):
     def extract_schemas(self) -> Dict[str, Schema]:
@@ -260,36 +400,64 @@ class MyFrameworkExtractor(BaseExtractor):
         return schemas
 ```
 
-## 🎉 **Success Stories**
-
-> *"We prevented 15 production incidents in our first month using this tool. It's now required in all our data pipeline PRs."*  
-> — Data Engineering Team, TechCorp
-
-> *"Finally! A tool that validates the contract between our DBT models and FastAPI services. No more surprise 500 errors."*  
-> — Platform Team, StartupCo
+### **Reporting Issues**
+- 🐛 **Bugs**: [GitHub Issues](https://github.com/OGsiji/data-contract-validator/issues)
+- 💡 **Features**: [GitHub Discussions](https://github.com/OGsiji/data-contract-validator/discussions)
 
 ## 📚 **Documentation**
 
-- [Installation Guide](docs/installation.md)
-- [Configuration Reference](docs/configuration.md)  
-- [GitHub Actions Setup](docs/github-actions.md)
-- [Extending with New Extractors](docs/extending.md)
-- [API Reference](docs/api-reference.md)
+- **[Quick Start Guide](https://github.com/OGsiji/data-contract-validator#quick-start)** - Get running in 2 minutes
+- **[Configuration Reference](https://github.com/OGsiji/data-contract-validator/blob/main/examples)** - All config options
+- **[GitHub Actions Setup](https://github.com/OGsiji/data-contract-validator/blob/main/examples/.github_actions)** - CI/CD integration
+- **[Examples](https://github.com/OGsiji/data-contract-validator/tree/main/examples)** - Real-world usage
+- **[Pre-commit Integration](https://github.com/OGsiji/data-contract-validator#pre-commit-integration)** - Automated validation
+
+## 🎉 **Real-World Usage**
+
+This tool is actively preventing production incidents in:
+- **Analytics pipelines** with 50+ DBT models
+- **Microservices architectures** with multiple APIs
+- **Data engineering teams** using Snowflake, BigQuery, Redshift
+- **Cross-repository validation** in large organizations
+
+**Proven to catch:**
+- ✅ **Type mismatches** (varchar vs integer)
+- ✅ **Missing columns** (API expects columns DBT doesn't provide)
+- ✅ **Schema drift** (gradual model changes)
+- ✅ **Breaking changes** before they reach production
+
+## 🛡️ **Multiple Layers of Protection**
+
+1. **Pre-commit hooks**: Immediate feedback (fastest)
+2. **CI/CD validation**: Team protection (backup)
+3. **Manual validation**: Development testing
+4. **Configuration files**: Team standards
+
+This creates a comprehensive safety net for your data contracts.
 
 ## 📄 **License**
 
-MIT License - see [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE](https://github.com/OGsiji/data-contract-validator/blob/main/LICENSE) for details.
 
 ## 🆘 **Support**
 
-- 🐛 **Bug reports**: [GitHub Issues](https://github.com/your-org/data-contract-validator/issues)
-- 💡 **Feature requests**: [GitHub Discussions](https://github.com/your-org/data-contract-validator/discussions)
-- 📧 **Email**: your-email@example.com
+- 🐛 **Issues**: [GitHub Issues](https://github.com/OGsiji/data-contract-validator/issues)
+- 💬 **Discussions**: [GitHub Discussions](https://github.com/OGsiji/data-contract-validator/discussions)
+- 📧 **Email**: ogunniransiji@gmail.com
 
-## ⭐ **Star History**
+## ⭐ **Star the Project**
 
-If this tool helps you prevent production incidents, please star the repo! ⭐
+If this tool helps you prevent production incidents, please ⭐ star the repository!
 
 ---
 
-**Built with ❤️ by data engineers, for data engineers.**
+**🛡️ Built by data engineers, for data engineers. Stop breaking production with data changes!**
+
+## 🚀 **Get Started Now**
+
+```bash
+pip install data-contract-validator
+contract-validator init --interactive
+contract-validator setup-precommit --install-hooks
+# 2 minutes to production protection with automated validation!
+```

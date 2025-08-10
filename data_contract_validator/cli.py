@@ -663,6 +663,73 @@ def _output_github_actions(result):
             click.echo(f"::error::{issue.table}.{issue.column}: {issue.message}")
 
 
+@cli.command()
+@click.option("--install-hooks", is_flag=True, help="Install pre-commit hooks")
+def setup_precommit(install_hooks: bool):
+    """🛠️ Setup pre-commit integration for contract validation."""
+
+    click.echo("🛠️ Setting up pre-commit integration...")
+
+    # Create .pre-commit-config.yaml if it doesn't exist
+    precommit_config = Path(".pre-commit-config.yaml")
+
+    if not precommit_config.exists():
+        config_content = """repos:
+  - repo: https://github.com/OGsiji/retl_validator
+    rev: v1.0.0
+    hooks:
+      - id: contract-validation
+        name: Validate Data Contracts
+        description: Prevent production breaks with contract validation
+        files: '^(.*models.*\\.(sql|py)|\\.retl-validator\\.yml|dbt_project\\.yml)$'
+
+  # Add other hooks here
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+"""
+
+        with open(precommit_config, "w") as f:
+            f.write(config_content)
+
+        click.echo(f"✅ Created {precommit_config}")
+    else:
+        click.echo(f"⚠️  {precommit_config} already exists")
+
+    if install_hooks:
+        # Install pre-commit if not installed
+        try:
+            subprocess.run(["pre-commit", "--version"], capture_output=True, check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            click.echo("📦 Installing pre-commit...")
+            subprocess.run([sys.executable, "-m", "pip", "install", "pre-commit"])
+
+        # Install hooks
+        click.echo("🔗 Installing pre-commit hooks...")
+        result = subprocess.run(
+            ["pre-commit", "install"], capture_output=True, text=True
+        )
+
+        if result.returncode == 0:
+            click.echo("✅ Pre-commit hooks installed successfully!")
+            click.echo(
+                "\n🎉 Setup complete! Now contract validation runs on every commit."
+            )
+            click.echo("\n🧪 Test it:")
+            click.echo("   git add .")
+            click.echo("   git commit -m 'test contract validation'")
+            click.echo("   # Contract validation will run automatically!")
+        else:
+            click.echo(f"❌ Failed to install hooks: {result.stderr}")
+    else:
+        click.echo("\n🔗 To complete setup, run:")
+        click.echo("   pip install pre-commit")
+        click.echo("   pre-commit install")
+
+
 def main():
     """Main entry point."""
     cli()
