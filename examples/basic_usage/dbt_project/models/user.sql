@@ -1,7 +1,7 @@
 -- Simple users model
 select
     id as user_id,
-    -- email,
+    email,
     first_name,
     last_name,
     created_at,
