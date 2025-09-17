@@ -71,7 +71,7 @@ def init(interactive: bool, framework: str, dbt_path: str, output_dir: str):
 
 
 def _interactive_setup() -> Dict[str, Any]:
-    """Interactive setup wizard - 3 simple questions."""
+    """Interactive setup wizard with directory support."""
     click.echo("📋 Quick Setup (3 questions):")
     click.echo()
 
@@ -100,43 +100,56 @@ def _interactive_setup() -> Dict[str, Any]:
         show_default=True,
     )
 
-    # Question 3: API models location
+    # Question 3: API models location with directory support
     click.echo()
     if framework == "fastapi":
-        default_path = "app/models.py"
-        prompt_text = "3️⃣  Where are your Pydantic models?"
+        default_path = "app/models"  # Default to directory
+        prompt_text = "3️⃣  Where are your Pydantic models? (file or directory)"
+        help_text = "   💡 Examples: 'app/models.py' (single file) or 'app/models' (directory)"
     elif framework == "django":
         default_path = "models.py"
         prompt_text = "3️⃣  Where are your Django models?"
+        help_text = "   💡 Examples: 'myapp/models.py' or 'models'"
     else:
-        default_path = "models.py"
+        default_path = "models"
         prompt_text = "3️⃣  Where are your API models?"
-
+        help_text = "   💡 Can be a file (models.py) or directory (models/)"
+    
+    click.echo(help_text)
     api_location = click.prompt(prompt_text, default=default_path, show_default=True)
 
-    # Auto-detect if it's local file or GitHub repo
+    # Auto-detect if it's local file/directory or GitHub repo
     is_github_repo = "/" in api_location and not api_location.startswith((".", "/"))
 
     if is_github_repo:
-        # Format: "org/repo" or "org/repo/path/to/file.py"
+        # Format: "org/repo" or "org/repo/path/to/models"
         parts = api_location.split("/")
         if len(parts) >= 2:
             repo = "/".join(parts[:2])
-            path = "/".join(parts[2:]) if len(parts) > 2 else "models.py"
+            path = "/".join(parts[2:]) if len(parts) > 2 else "app/models"
         else:
             repo = api_location
-            path = "models.py"
+            path = "app/models"
 
         api_config = {"type": "github", "repo": repo, "path": path}
         click.echo(f"   🐙 GitHub repo detected: {repo}/{path}")
     else:
         api_config = {"type": "local", "path": api_location}
 
-        # Check if local file exists
-        if Path(api_location).exists():
-            click.echo("   ✅ Local file found")
+        # Check if local file/directory exists and provide feedback
+        local_path = Path(api_location)
+        if local_path.exists():
+            if local_path.is_file():
+                click.echo(f"   ✅ Local file found: {api_location}")
+            elif local_path.is_dir():
+                # Count Python files in directory
+                py_files = list(local_path.rglob("*.py"))
+                py_files = [f for f in py_files if not f.name.startswith("test_") and f.name != "__init__.py"]
+                click.echo(f"   ✅ Local directory found: {api_location} ({len(py_files)} Python files)")
+            else:
+                click.echo(f"   ⚠️  Path exists but is neither file nor directory: {api_location}")
         else:
-            click.echo(f"   ⚠️  File not found: {api_location}")
+            click.echo(f"   ⚠️  Path not found: {api_location}")
             if not click.confirm("   Continue anyway?"):
                 sys.exit(1)
 
@@ -447,22 +460,20 @@ def _test_setup(config_file: Path) -> bool:
 
 @cli.command()
 @click.option("--config", default=".retl-validator.yml", help="Config file path")
-@click.option(
-    "--dry-run", is_flag=True, help="Test configuration without full validation"
-)
-@click.option(
-    "--output", type=click.Choice(["terminal", "json", "github"]), default="terminal"
-)
+@click.option("--dry-run", is_flag=True, help="Test configuration without full validation")
+@click.option("--output", type=click.Choice(["terminal", "json", "github"]), default="terminal")
 @click.option("--dbt-project", help="Override DBT project path")
-@click.option("--fastapi-local", help="Override FastAPI models path")
+@click.option("--fastapi-local", help="Override FastAPI models path (file or directory)")
+@click.option("--fastapi-directory", help="Override FastAPI models directory path")
 @click.option("--fastapi-repo", help="Override FastAPI repo (org/repo)")
-@click.option("--fastapi-path", default="app/models.py", help="Path in FastAPI repo")
+@click.option("--fastapi-path", default="app/models", help="Path in FastAPI repo (file or directory)")
 def validate(
     config: str,
     dry_run: bool,
     output: str,
     dbt_project: str,
     fastapi_local: str,
+    fastapi_directory: str,
     fastapi_repo: str,
     fastapi_path: str,
 ):
@@ -486,13 +497,14 @@ def validate(
 
     if dry_run:
         click.echo("🧪 Dry run - testing configuration only")
-        _test_configuration(config_data, dbt_project, fastapi_local, fastapi_repo)
+        _test_configuration(config_data, dbt_project, fastapi_local, fastapi_directory, fastapi_repo)
         return
 
     # Run actual validation
     _run_validation(
-        config_data, output, dbt_project, fastapi_local, fastapi_repo, fastapi_path
+        config_data, output, dbt_project, fastapi_local, fastapi_directory, fastapi_repo, fastapi_path
     )
+
 
 
 def _test_configuration(
@@ -528,10 +540,11 @@ def _run_validation(
     output: str,
     dbt_project: str,
     fastapi_local: str,
+    fastapi_directory: str,
     fastapi_repo: str,
     fastapi_path: str,
 ):
-    """Run the actual validation."""
+    """Run the actual validation with directory support."""
 
     # Get DBT project path
     dbt_path = dbt_project or config_data.get("source", {}).get("dbt", {}).get(
@@ -545,12 +558,33 @@ def _run_validation(
         click.echo(f"❌ Error initializing DBT extractor: {e}")
         sys.exit(1)
 
-    # Initialize FastAPI extractor
+    # Initialize FastAPI extractor with directory support
     try:
-        if fastapi_local:
-            fastapi_extractor = FastAPIExtractor.from_local_file(fastapi_local)
+        if fastapi_local or fastapi_directory:
+            # Use local path (file or directory)
+            local_path = fastapi_local or fastapi_directory
+            
+            # Auto-detect if it's a file or directory
+            path = Path(local_path)
+            if path.is_file():
+                click.echo(f"📄 Using FastAPI models file: {local_path}")
+                fastapi_extractor = FastAPIExtractor.from_local_file(local_path)
+            elif path.is_dir():
+                click.echo(f"📁 Using FastAPI models directory: {local_path}")
+                fastapi_extractor = FastAPIExtractor.from_local_directory(local_path)
+            else:
+                raise ValueError(f"Path does not exist: {local_path}")
+                
         elif fastapi_repo:
+            # Use GitHub repository
             github_token = os.environ.get("GITHUB_TOKEN")
+            
+            # Check if fastapi_path ends with .py (file) or not (directory)
+            if fastapi_path.endswith('.py'):
+                click.echo(f"📄 Using FastAPI models file: {fastapi_repo}/{fastapi_path}")
+            else:
+                click.echo(f"📁 Using FastAPI models directory: {fastapi_repo}/{fastapi_path}")
+            
             fastapi_extractor = FastAPIExtractor.from_github_repo(
                 repo=fastapi_repo, path=fastapi_path, token=github_token
             )
@@ -558,14 +592,21 @@ def _run_validation(
             # Get from config
             target_config = list(config_data.get("target", {}).values())[0]
             if target_config.get("type") == "local":
-                fastapi_extractor = FastAPIExtractor.from_local_file(
-                    target_config.get("path")
-                )
+                local_path = target_config.get("path")
+                path = Path(local_path)
+                
+                if path.is_file():
+                    fastapi_extractor = FastAPIExtractor.from_local_file(local_path)
+                elif path.is_dir():
+                    fastapi_extractor = FastAPIExtractor.from_local_directory(local_path)
+                else:
+                    raise ValueError(f"Path does not exist: {local_path}")
+                    
             elif target_config.get("type") == "github":
                 github_token = os.environ.get("GITHUB_TOKEN")
                 fastapi_extractor = FastAPIExtractor.from_github_repo(
                     repo=target_config.get("repo"),
-                    path=target_config.get("path", "app/models.py"),
+                    path=target_config.get("path", "app/models"),
                     token=github_token,
                 )
             else:

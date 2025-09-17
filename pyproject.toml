@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "data-contract-validator"
-version = "1.0.3"
+version = "1.0.4"
 description = "Adding pre-commit-fixes"
 readme = "README.md"
 license = {text = "MIT"}
