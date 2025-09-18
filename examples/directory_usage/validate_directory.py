@@ -40,7 +40,7 @@ def main():
         # Initialize extractors
         print("\n📊 Initializing extractors...")
         dbt = DBTExtractor(project_path="./dbt_project")
-        
+
         # Use directory-based FastAPI extractor
         fastapi = FastAPIExtractor.from_local_directory("./fastapi_app/models")
 
@@ -53,7 +53,9 @@ def main():
         result = validator.validate()
 
         # Print detailed results
-        print(f"\n📊 Validation Result: {'✅ PASSED' if result.success else '❌ FAILED'}")
+        print(
+            f"\n📊 Validation Result: {'✅ PASSED' if result.success else '❌ FAILED'}"
+        )
         print(f"   Total issues: {len(result.issues)}")
         print(f"   Critical issues: {len(result.critical_issues)}")
         print(f"   Warnings: {len(result.warnings)}")
@@ -63,7 +65,7 @@ def main():
         print(f"   DBT Models: {len(result.source_schemas)}")
         for name, schema in result.source_schemas.items():
             print(f"      {name}: {len(schema.columns)} columns")
-        
+
         print(f"   FastAPI Models: {len(result.target_schemas)}")
         for name, schema in result.target_schemas.items():
             print(f"      {name}: {len(schema.columns)} columns ({schema.source})")
@@ -89,7 +91,9 @@ def main():
 
         if result.success:
             print("\n🎉 Validation passed! Your API contracts are compatible.")
-            print("💡 All FastAPI models have matching DBT tables with required columns.")
+            print(
+                "💡 All FastAPI models have matching DBT tables with required columns."
+            )
         else:
             print("\n💥 Validation failed! Fix the critical issues above.")
             print("💡 Add missing columns to DBT models or update FastAPI models.")
@@ -99,13 +103,14 @@ def main():
     except Exception as e:
         print(f"❌ Error during validation: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
 
 def setup_example_project():
     """Create a realistic example project structure."""
-    
+
     # Create DBT project structure
     dbt_dir = Path("./dbt_project")
     models_dir = dbt_dir / "models"
@@ -260,11 +265,11 @@ if __name__ == "__main__":
     success = main()
     print(f"\n{'='*50}")
     print(f"Example completed: {'✅ PASSED' if success else '❌ FAILED'}")
-    
+
     if not success:
         print("\n💡 This failure is intentional to show validation in action!")
         print("   - Missing columns in API models")
         print("   - Type mismatches (float vs Decimal)")
         print("   - Extra columns in API models")
-    
+
     sys.exit(0)  # Always exit 0 for demo purposes

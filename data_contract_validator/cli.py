@@ -105,7 +105,9 @@ def _interactive_setup() -> Dict[str, Any]:
     if framework == "fastapi":
         default_path = "app/models"  # Default to directory
         prompt_text = "3️⃣  Where are your Pydantic models? (file or directory)"
-        help_text = "   💡 Examples: 'app/models.py' (single file) or 'app/models' (directory)"
+        help_text = (
+            "   💡 Examples: 'app/models.py' (single file) or 'app/models' (directory)"
+        )
     elif framework == "django":
         default_path = "models.py"
         prompt_text = "3️⃣  Where are your Django models?"
@@ -114,7 +116,7 @@ def _interactive_setup() -> Dict[str, Any]:
         default_path = "models"
         prompt_text = "3️⃣  Where are your API models?"
         help_text = "   💡 Can be a file (models.py) or directory (models/)"
-    
+
     click.echo(help_text)
     api_location = click.prompt(prompt_text, default=default_path, show_default=True)
 
@@ -144,30 +146,52 @@ def _interactive_setup() -> Dict[str, Any]:
             elif local_path.is_dir():
                 # Count Python files in directory
                 py_files = list(local_path.rglob("*.py"))
-                py_files = [f for f in py_files if not f.name.startswith("test_") and f.name != "__init__.py"]
-                click.echo(f"   ✅ Local directory found: {api_location} ({len(py_files)} Python files)")
+                py_files = [
+                    f
+                    for f in py_files
+                    if not f.name.startswith("test_") and f.name != "__init__.py"
+                ]
+                click.echo(
+                    f"   ✅ Local directory found: {api_location} ({len(py_files)} Python files)"
+                )
             else:
-                click.echo(f"   ⚠️  Path exists but is neither file nor directory: {api_location}")
+                click.echo(
+                    f"   ⚠️  Path exists but is neither file nor directory: {api_location}"
+                )
         else:
             click.echo(f"   ⚠️  Path not found: {api_location}")
             if not click.confirm("   Continue anyway?"):
                 sys.exit(1)
 
+            # New question about manifest parsing
+    click.echo()
+    disable_manifest = click.confirm(
+        "4️⃣  Disable manifest.json parsing? (recommended if you have CTE-based models)",
+        default=True
+    )
+    
+    if disable_manifest:
+        click.echo("   📄 Will use SQL file parsing (better for complex models)")
+    else:
+        click.echo("   📋 Will try manifest.json first, fallback to SQL parsing")
+
     return {
         "version": "1.0",
         "name": f"contracts-{Path.cwd().name}",
-        "description": "Auto-generated data contract validation",
         "source": {
-            "dbt": {"project_path": dbt_path, "auto_compile": True, "timeout": 120}
+            "dbt": {
+                "project_path": dbt_path, 
+                "auto_compile": True, 
+                "disable_manifest": disable_manifest  # NEW
+            }
         },
         "target": {framework: api_config},
         "validation": {
             "fail_on": ["missing_tables", "missing_required_columns"],
-            "warn_on": ["type_mismatches", "missing_optional_columns"],
-            "mode": "strict",
+            "warn_on": ["type_mismatches"]
         },
-        "output": {"format": "terminal", "show_suggestions": True, "max_issues": 20},
     }
+
 
 
 def _quick_setup(framework: str, dbt_path: str) -> Dict[str, Any]:
@@ -460,13 +484,24 @@ def _test_setup(config_file: Path) -> bool:
 
 @cli.command()
 @click.option("--config", default=".retl-validator.yml", help="Config file path")
-@click.option("--dry-run", is_flag=True, help="Test configuration without full validation")
-@click.option("--output", type=click.Choice(["terminal", "json", "github"]), default="terminal")
+@click.option(
+    "--dry-run", is_flag=True, help="Test configuration without full validation"
+)
+@click.option(
+    "--output", type=click.Choice(["terminal", "json", "github"]), default="terminal"
+)
 @click.option("--dbt-project", help="Override DBT project path")
-@click.option("--fastapi-local", help="Override FastAPI models path (file or directory)")
+@click.option(
+    "--fastapi-local", help="Override FastAPI models path (file or directory)"
+)
 @click.option("--fastapi-directory", help="Override FastAPI models directory path")
 @click.option("--fastapi-repo", help="Override FastAPI repo (org/repo)")
-@click.option("--fastapi-path", default="app/models", help="Path in FastAPI repo (file or directory)")
+@click.option(
+    "--fastapi-path",
+    default="app/models",
+    help="Path in FastAPI repo (file or directory)",
+)
+@click.option("--disable-manifest", is_flag=True, help="Force SQL parsing, ignore manifest.json")
 def validate(
     config: str,
     dry_run: bool,
@@ -476,6 +511,7 @@ def validate(
     fastapi_directory: str,
     fastapi_repo: str,
     fastapi_path: str,
+    disable_manifest: bool, 
 ):
     """🔍 Validate data contracts (prevents production breaks)."""
 
@@ -497,14 +533,21 @@ def validate(
 
     if dry_run:
         click.echo("🧪 Dry run - testing configuration only")
-        _test_configuration(config_data, dbt_project, fastapi_local, fastapi_directory, fastapi_repo)
+        _test_configuration(
+            config_data, dbt_project, fastapi_local, fastapi_directory, fastapi_repo, disable_manifest 
+        )
         return
 
     # Run actual validation
     _run_validation(
-        config_data, output, dbt_project, fastapi_local, fastapi_directory, fastapi_repo, fastapi_path
+        config_data,
+        output,
+        dbt_project,
+        fastapi_local,
+        fastapi_directory,
+        fastapi_repo,
+        fastapi_path,
     )
-
 
 
 def _test_configuration(
@@ -540,30 +583,41 @@ def _run_validation(
     output: str,
     dbt_project: str,
     fastapi_local: str,
-    fastapi_directory: str,
     fastapi_repo: str,
     fastapi_path: str,
+    disable_manifest: bool = False,
 ):
-    """Run the actual validation with directory support."""
+    """Run the actual validation with manifest disable option."""
 
     # Get DBT project path
     dbt_path = dbt_project or config_data.get("source", {}).get("dbt", {}).get(
         "project_path", "."
     )
 
-    # Initialize DBT extractor
+    # Get disable_manifest from config file OR command line flag
+    config_disable_manifest = config_data.get("source", {}).get("dbt", {}).get("disable_manifest", False)
+    use_disable_manifest = disable_manifest or config_disable_manifest  # CLI flag takes precedence
+
+    if use_disable_manifest:
+        click.echo("📄 Manifest parsing disabled")
+        if disable_manifest:
+            click.echo("   (via --disable-manifest flag)")
+        else:
+            click.echo("   (via .retl-validator.yml config)")
+
+    # Initialize DBT extractor with disable_manifest option
     try:
-        dbt_extractor = DBTExtractor(dbt_path)
+        dbt_extractor = DBTExtractor(dbt_path, disable_manifest=use_disable_manifest)
     except Exception as e:
         click.echo(f"❌ Error initializing DBT extractor: {e}")
         sys.exit(1)
 
     # Initialize FastAPI extractor with directory support
     try:
-        if fastapi_local or fastapi_directory:
+        if fastapi_local:
             # Use local path (file or directory)
-            local_path = fastapi_local or fastapi_directory
-            
+            local_path = fastapi_local
+
             # Auto-detect if it's a file or directory
             path = Path(local_path)
             if path.is_file():
@@ -574,17 +628,21 @@ def _run_validation(
                 fastapi_extractor = FastAPIExtractor.from_local_directory(local_path)
             else:
                 raise ValueError(f"Path does not exist: {local_path}")
-                
+
         elif fastapi_repo:
             # Use GitHub repository
             github_token = os.environ.get("GITHUB_TOKEN")
-            
+
             # Check if fastapi_path ends with .py (file) or not (directory)
-            if fastapi_path.endswith('.py'):
-                click.echo(f"📄 Using FastAPI models file: {fastapi_repo}/{fastapi_path}")
+            if fastapi_path.endswith(".py"):
+                click.echo(
+                    f"📄 Using FastAPI models file: {fastapi_repo}/{fastapi_path}"
+                )
             else:
-                click.echo(f"📁 Using FastAPI models directory: {fastapi_repo}/{fastapi_path}")
-            
+                click.echo(
+                    f"📁 Using FastAPI models directory: {fastapi_repo}/{fastapi_path}"
+                )
+
             fastapi_extractor = FastAPIExtractor.from_github_repo(
                 repo=fastapi_repo, path=fastapi_path, token=github_token
             )
@@ -594,14 +652,16 @@ def _run_validation(
             if target_config.get("type") == "local":
                 local_path = target_config.get("path")
                 path = Path(local_path)
-                
+
                 if path.is_file():
                     fastapi_extractor = FastAPIExtractor.from_local_file(local_path)
                 elif path.is_dir():
-                    fastapi_extractor = FastAPIExtractor.from_local_directory(local_path)
+                    fastapi_extractor = FastAPIExtractor.from_local_directory(
+                        local_path
+                    )
                 else:
                     raise ValueError(f"Path does not exist: {local_path}")
-                    
+
             elif target_config.get("type") == "github":
                 github_token = os.environ.get("GITHUB_TOKEN")
                 fastapi_extractor = FastAPIExtractor.from_github_repo(

@@ -16,11 +16,12 @@ from ..core.models import Schema
 class DBTExtractor(BaseExtractor):
     """Extract schemas from DBT projects."""
 
-    def __init__(self, project_path: str = "."):
+    def __init__(self, project_path: str = ".", disable_manifest: bool = False):
         self.project_path = Path(project_path)
         self.target_dir = self.project_path / "target"
         self.manifest_path = self.target_dir / "manifest.json"
         self.models_path = self.project_path / "models"
+        self.disable_manifest = disable_manifest
 
     def extract_schemas(self) -> Dict[str, Schema]:
         """Extract schemas from DBT project."""
