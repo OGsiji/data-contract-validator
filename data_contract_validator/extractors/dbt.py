@@ -27,13 +27,16 @@ class DBTExtractor(BaseExtractor):
         """Extract schemas from DBT project."""
         print(f"🔍 Extracting DBT schemas from {self.project_path}")
 
-        # Try manifest first, fallback to SQL parsing
+        # Check if manifest should be disabled
+        if self.disable_manifest:
+            print("   📄 Manifest disabled, using SQL file parsing")
+            return self._extract_from_sql_files()  # This should execute
+
+        # This should NOT execute if disable_manifest=True
         if self._try_compile_dbt() and self.manifest_path.exists():
-            print("   📋 Using manifest.json")
+            print("   📋 Using manifest.json")  # But this IS executing!
             return self._extract_from_manifest()
-        else:
-            print("   📄 Using SQL file parsing")
-            return self._extract_from_sql_files()
+        
 
     def _try_compile_dbt(self) -> bool:
         """Try to compile DBT project."""
