@@ -223,7 +223,7 @@ class FastAPIExtractor(BaseExtractor):
 
     @staticmethod
     def _fetch_github_file(repo: str, path: str, token: str = None) -> Optional[str]:
-        """Fetch file content from GitHub API."""
+        """Fetch file content from GitHub API with rate limit handling."""
         url = f"https://api.github.com/repos/{repo}/contents/{path}"
         headers = {}
 
@@ -232,11 +232,35 @@ class FastAPIExtractor(BaseExtractor):
 
         try:
             response = requests.get(url, headers=headers)
+
+            # Check rate limit headers
+            if "X-RateLimit-Remaining" in response.headers:
+                remaining = int(response.headers["X-RateLimit-Remaining"])
+                if remaining < 10:
+                    print(f"   ⚠️  GitHub API rate limit low: {remaining} requests remaining")
+                    if remaining == 0:
+                        reset_time = int(response.headers.get("X-RateLimit-Reset", 0))
+                        import time
+                        wait_time = max(0, reset_time - int(time.time()))
+                        print(f"   ⏳ Rate limit exceeded. Resets in {wait_time // 60} minutes")
+
             if response.status_code == 200:
                 import base64
 
                 content = base64.b64decode(response.json()["content"]).decode("utf-8")
                 return content
+            elif response.status_code == 403:
+                # Check if it's a rate limit error
+                error_message = response.json().get("message", "")
+                if "rate limit" in error_message.lower():
+                    print(f"   ❌ GitHub API rate limit exceeded")
+                    print(f"   💡 Try setting GITHUB_TOKEN environment variable for higher limits")
+                else:
+                    print(f"   ❌ GitHub API access forbidden: {error_message}")
+                return None
+            elif response.status_code == 404:
+                print(f"   ❌ File not found: {path}")
+                return None
             else:
                 print(f"   ❌ GitHub API error for {path}: {response.status_code}")
                 return None

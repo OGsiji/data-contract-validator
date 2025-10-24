@@ -494,7 +494,6 @@ def _test_setup(config_file: Path) -> bool:
 @click.option(
     "--fastapi-local", help="Override FastAPI models path (file or directory)"
 )
-@click.option("--fastapi-directory", help="Override FastAPI models directory path")
 @click.option("--fastapi-repo", help="Override FastAPI repo (org/repo)")
 @click.option(
     "--fastapi-path",
@@ -508,10 +507,9 @@ def validate(
     output: str,
     dbt_project: str,
     fastapi_local: str,
-    fastapi_directory: str,
     fastapi_repo: str,
     fastapi_path: str,
-    disable_manifest: bool, 
+    disable_manifest: bool,
 ):
     """🔍 Validate data contracts (prevents production breaks)."""
 
@@ -519,9 +517,34 @@ def validate(
     config_data = {}
     config_file = Path(config)
     if config_file.exists():
-        with open(config_file) as f:
-            config_data = yaml.safe_load(f)
-        click.echo(f"📋 Using config: {config}")
+        try:
+            with open(config_file) as f:
+                config_data = yaml.safe_load(f)
+
+            # Validate that config is a dictionary
+            if not isinstance(config_data, dict):
+                click.echo(f"❌ Configuration file {config} is invalid: expected YAML dictionary")
+                click.echo("💡 Check the file format - it should contain key-value pairs")
+                sys.exit(1)
+
+            # Check for required sections
+            if "source" not in config_data:
+                click.echo(f"⚠️  Warning: 'source' section missing in {config}")
+            if "target" not in config_data:
+                click.echo(f"⚠️  Warning: 'target' section missing in {config}")
+
+            click.echo(f"📋 Using config: {config}")
+        except yaml.YAMLError as e:
+            click.echo(f"❌ Configuration file {config} contains invalid YAML:")
+            click.echo(f"   {e}")
+            click.echo("💡 Check for:")
+            click.echo("   - Incorrect indentation")
+            click.echo("   - Missing colons after keys")
+            click.echo("   - Unmatched quotes or brackets")
+            sys.exit(1)
+        except Exception as e:
+            click.echo(f"❌ Error reading configuration file {config}: {e}")
+            sys.exit(1)
     elif not any([dbt_project, fastapi_local, fastapi_repo]):
         click.echo("❌ No config file found and no command line options provided")
         click.echo("💡 Run 'contract-validator init' to create a config file")
@@ -534,7 +557,7 @@ def validate(
     if dry_run:
         click.echo("🧪 Dry run - testing configuration only")
         _test_configuration(
-            config_data, dbt_project, fastapi_local, fastapi_directory, fastapi_repo, disable_manifest 
+            config_data, dbt_project, fastapi_local, fastapi_repo, disable_manifest
         )
         return
 
@@ -544,14 +567,18 @@ def validate(
         output,
         dbt_project,
         fastapi_local,
-        fastapi_directory,
         fastapi_repo,
         fastapi_path,
+        disable_manifest,
     )
 
 
 def _test_configuration(
-    config_data: Dict[str, Any], dbt_project: str, fastapi_local: str, fastapi_repo: str
+    config_data: Dict[str, Any],
+    dbt_project: str,
+    fastapi_local: str,
+    fastapi_repo: str,
+    disable_manifest: bool = False
 ):
     """Test configuration without running full validation."""
 
@@ -565,12 +592,21 @@ def _test_configuration(
     else:
         click.echo("      ❌ Path not found")
 
+    if disable_manifest or config_data.get("source", {}).get("dbt", {}).get("disable_manifest", False):
+        click.echo("   📄 Manifest parsing: disabled")
+    else:
+        click.echo("   📋 Manifest parsing: enabled")
+
     if fastapi_local:
         click.echo(f"   🎯 FastAPI models: {fastapi_local}")
-        if Path(fastapi_local).exists():
-            click.echo("      ✅ File exists")
+        local_path = Path(fastapi_local)
+        if local_path.exists():
+            if local_path.is_file():
+                click.echo("      ✅ File exists")
+            elif local_path.is_dir():
+                click.echo("      ✅ Directory exists")
         else:
-            click.echo("      ❌ File not found")
+            click.echo("      ❌ Path not found")
 
     if fastapi_repo:
         click.echo(f"   🐙 FastAPI repo: {fastapi_repo}")

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "data-contract-validator"
-version = "1.0.4b"
-description = "Adding pre-commit-fixes"
+version = "1.0.5"
+description = "Critical bug fixes: DBT extractor return paths, function signatures, error handling, and GitHub API rate limiting"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [

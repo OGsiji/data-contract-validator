@@ -30,13 +30,16 @@ class DBTExtractor(BaseExtractor):
         # Check if manifest should be disabled
         if self.disable_manifest:
             print("   📄 Manifest disabled, using SQL file parsing")
-            return self._extract_from_sql_files()  # This should execute
+            return self._extract_from_sql_files()
 
-        # This should NOT execute if disable_manifest=True
+        # Try to use manifest.json if available
         if self._try_compile_dbt() and self.manifest_path.exists():
-            print("   📋 Using manifest.json")  # But this IS executing!
+            print("   📋 Using manifest.json")
             return self._extract_from_manifest()
-        
+
+        # Fallback to SQL file parsing if manifest is not available
+        print("   📄 Manifest not available, using SQL file parsing")
+        return self._extract_from_sql_files()
 
     def _try_compile_dbt(self) -> bool:
         """Try to compile DBT project."""
@@ -48,7 +51,14 @@ class DBTExtractor(BaseExtractor):
                 timeout=60,
             )
             return result.returncode == 0
-        except:
+        except subprocess.TimeoutExpired:
+            print("   ⚠️  DBT compilation timeout (>60s)")
+            return False
+        except FileNotFoundError:
+            print("   ⚠️  DBT CLI not found (install with: pip install dbt-core)")
+            return False
+        except Exception as e:
+            print(f"   ⚠️  DBT compilation error: {e}")
             return False
 
     def _extract_from_manifest(self) -> Dict[str, Schema]:
