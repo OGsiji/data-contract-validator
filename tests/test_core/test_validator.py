@@ -109,3 +109,179 @@ class TestContractValidator:
         assert len(result.critical_issues) == 1
         assert result.critical_issues[0].column == "email"
         assert "email" in result.critical_issues[0].message
+
+    def test_incomplete_source_does_not_hard_fail_missing_column(self):
+        """A missing column on an incomplete (SELECT *) source must not be critical."""
+        source_extractor = Mock()
+        target_extractor = Mock()
+
+        source_extractor.extract_schemas.return_value = {
+            "users": Schema(
+                name="users",
+                columns=[{"name": "id", "type": "varchar", "required": True}],
+                source="dbt_sqlglot",
+                metadata={"confidence": "medium", "complete": False},
+            )
+        }
+        target_extractor.extract_schemas.return_value = {
+            "users": Schema(
+                name="users",
+                columns=[
+                    {"name": "id", "type": "varchar", "required": True},
+                    {"name": "email", "type": "varchar", "required": True},
+                ],
+                source="test",
+            )
+        }
+
+        validator = ContractValidator(source_extractor, target_extractor)
+        result = validator.validate()
+
+        # Build is NOT blocked, but the user is warned to verify manually.
+        assert result.success is True
+        assert len(result.critical_issues) == 0
+        assert any("email" in w.message for w in result.warnings)
+
+    def test_canonical_types_avoid_false_mismatch(self):
+        """dbt 'varchar' vs Pydantic 'str' must not produce a type-mismatch warning."""
+        source_extractor = Mock()
+        target_extractor = Mock()
+
+        source_extractor.extract_schemas.return_value = {
+            "users": Schema(
+                name="users",
+                columns=[
+                    {
+                        "name": "email",
+                        "type": "varchar",
+                        "canonical_type": "string",
+                        "required": True,
+                    }
+                ],
+                source="dbt_catalog",
+                metadata={"confidence": "high", "complete": True},
+            )
+        }
+        target_extractor.extract_schemas.return_value = {
+            "users": Schema(
+                name="users",
+                columns=[
+                    {
+                        "name": "email",
+                        "type": "str",
+                        "canonical_type": "string",
+                        "required": True,
+                    }
+                ],
+                source="test",
+            )
+        }
+
+        validator = ContractValidator(source_extractor, target_extractor)
+        result = validator.validate()
+
+        assert result.success is True
+        assert len(result.issues) == 0
+
+    def test_normalized_name_matching(self):
+        """userId (target) should match user_id (source) without a missing-column error."""
+        source_extractor = Mock()
+        target_extractor = Mock()
+
+        source_extractor.extract_schemas.return_value = {
+            "users": Schema(
+                name="users",
+                columns=[{"name": "user_id", "type": "varchar", "required": True}],
+                source="dbt_catalog",
+                metadata={"confidence": "high", "complete": True},
+            )
+        }
+        target_extractor.extract_schemas.return_value = {
+            "users": Schema(
+                name="users",
+                columns=[{"name": "userId", "type": "str", "required": True}],
+                source="test",
+            )
+        }
+
+        validator = ContractValidator(source_extractor, target_extractor)
+        result = validator.validate()
+
+        assert result.success is True
+        assert len(result.critical_issues) == 0
+
+
+class TestExplicitMapping:
+    """Test the explicit table/column mapping config."""
+
+    def _extractors(self, source_schemas, target_schemas):
+        source_extractor = Mock()
+        target_extractor = Mock()
+        source_extractor.extract_schemas.return_value = source_schemas
+        target_extractor.extract_schemas.return_value = target_schemas
+        return source_extractor, target_extractor
+
+    def test_table_mapping_resolves_differently_named_models(self):
+        source_extractor, target_extractor = self._extractors(
+            {
+                "user_analytics_summary": Schema(
+                    name="user_analytics_summary",
+                    columns=[{"name": "user_id", "type": "varchar", "required": True}],
+                    source="dbt_catalog",
+                    metadata={"confidence": "high", "complete": True},
+                )
+            },
+            {
+                "user_analytics": Schema(
+                    name="user_analytics",
+                    columns=[{"name": "user_id", "type": "str", "required": True}],
+                    source="test",
+                )
+            },
+        )
+
+        # Without mapping: the names don't match -> missing table (critical).
+        no_map = ContractValidator(source_extractor, target_extractor).validate()
+        assert no_map.success is False
+        assert no_map.critical_issues[0].category == "Missing Table"
+
+        # With mapping: target 'user_analytics' -> source 'user_analytics_summary'.
+        mapping = {"tables": {"user_analytics": "user_analytics_summary"}}
+        mapped = ContractValidator(
+            source_extractor, target_extractor, mapping=mapping
+        ).validate()
+        assert mapped.success is True
+        assert len(mapped.issues) == 0
+
+    def test_column_mapping_resolves_renamed_columns(self):
+        source_extractor, target_extractor = self._extractors(
+            {
+                "users": Schema(
+                    name="users",
+                    columns=[
+                        {
+                            "name": "customer_identifier",
+                            "type": "varchar",
+                            "required": True,
+                        }
+                    ],
+                    source="dbt_catalog",
+                    metadata={"confidence": "high", "complete": True},
+                )
+            },
+            {
+                "users": Schema(
+                    name="users",
+                    columns=[{"name": "user_id", "type": "str", "required": True}],
+                    source="test",
+                )
+            },
+        )
+
+        mapping = {"columns": {"users": {"user_id": "customer_identifier"}}}
+        result = ContractValidator(
+            source_extractor, target_extractor, mapping=mapping
+        ).validate()
+
+        assert result.success is True
+        assert len(result.critical_issues) == 0

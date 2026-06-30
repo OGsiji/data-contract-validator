@@ -76,6 +76,26 @@ class Schema:
         """Get list of column names."""
         return [col.get("name") for col in self.columns if col.get("name")]
 
+    @property
+    def confidence(self) -> str:
+        """Extraction confidence: 'high', 'medium', or 'low'.
+
+        High  = authoritative source (dbt catalog.json, real warehouse types).
+        Medium = proper static parse (sqlglot) — names trusted, some types not.
+        Low   = best-effort regex parse — neither names nor types are reliable.
+        """
+        return (self.metadata or {}).get("confidence", "high")
+
+    @property
+    def is_complete(self) -> bool:
+        """Whether we believe we captured the full column set.
+
+        ``False`` when extraction may have missed columns (e.g. an unresolved
+        ``SELECT *``). Used by the validator to avoid raising a *critical*
+        "missing column" on a schema we never fully saw.
+        """
+        return (self.metadata or {}).get("complete", True)
+
 
 @dataclass
 class ValidationResult:

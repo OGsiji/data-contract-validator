@@ -7,6 +7,7 @@ import ast
 import re
 import requests
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union, get_type_hints
 
@@ -233,16 +234,27 @@ class FastAPIExtractor(BaseExtractor):
         try:
             response = requests.get(url, headers=headers)
 
-            # Check rate limit headers
-            if "X-RateLimit-Remaining" in response.headers:
-                remaining = int(response.headers["X-RateLimit-Remaining"])
+            # Check rate limit headers (defensively -- headers may not be a dict).
+            response_headers = getattr(response, "headers", None)
+            remaining_raw = (
+                response_headers.get("X-RateLimit-Remaining")
+                if isinstance(response_headers, Mapping)
+                else None
+            )
+            if remaining_raw is not None:
+                remaining = int(remaining_raw)
                 if remaining < 10:
-                    print(f"   ⚠️  GitHub API rate limit low: {remaining} requests remaining")
+                    print(
+                        f"   ⚠️  GitHub API rate limit low: {remaining} requests remaining"
+                    )
                     if remaining == 0:
-                        reset_time = int(response.headers.get("X-RateLimit-Reset", 0))
+                        reset_time = int(response_headers.get("X-RateLimit-Reset", 0))
                         import time
+
                         wait_time = max(0, reset_time - int(time.time()))
-                        print(f"   ⏳ Rate limit exceeded. Resets in {wait_time // 60} minutes")
+                        print(
+                            f"   ⏳ Rate limit exceeded. Resets in {wait_time // 60} minutes"
+                        )
 
             if response.status_code == 200:
                 import base64
@@ -254,7 +266,9 @@ class FastAPIExtractor(BaseExtractor):
                 error_message = response.json().get("message", "")
                 if "rate limit" in error_message.lower():
                     print(f"   ❌ GitHub API rate limit exceeded")
-                    print(f"   💡 Try setting GITHUB_TOKEN environment variable for higher limits")
+                    print(
+                        f"   💡 Try setting GITHUB_TOKEN environment variable for higher limits"
+                    )
                 else:
                     print(f"   ❌ GitHub API access forbidden: {error_message}")
                 return None
@@ -389,12 +403,13 @@ class FastAPIExtractor(BaseExtractor):
                 is_required = not self._is_optional_type(item.annotation)
 
                 columns.append(
-                    {
-                        "name": field_name,
-                        "type": self._python_to_sql_type(field_type),
-                        "required": is_required,
-                        "nullable": not is_required,
-                    }
+                    self._make_column(
+                        field_name,
+                        raw_type=field_type,
+                        canonical_type=self._python_to_canonical(field_type),
+                        required=is_required,
+                        nullable=not is_required,
+                    )
                 )
 
         if not columns:
@@ -406,7 +421,13 @@ class FastAPIExtractor(BaseExtractor):
         else:
             source = f"pydantic:{node.name}"
 
-        return Schema(name=table_name, columns=columns, source=source)
+        # Pydantic models are an authoritative, fully-parsed declaration.
+        return Schema(
+            name=table_name,
+            columns=columns,
+            source=source,
+            metadata={"confidence": "high", "complete": True},
+        )
 
     def _is_sqlmodel_table(self, node: ast.ClassDef) -> bool:
         """Check if this is a SQLModel table (database model, not API model)."""

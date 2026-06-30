@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-06-30
+
+This release is focused on **accuracy** — making a red check always mean a real
+problem and a green check genuinely safe, so the tool can be trusted to gate a
+deploy.
+
+### Added
+- **Canonical type system** (`core/types.py`): every extractor now normalizes
+  its native types (warehouse SQL types, Python hints) into a shared, neutral
+  vocabulary (`CanonicalType`). The validator compares canonical types instead
+  of raw strings, eliminating the bulk of false "type mismatch" warnings
+  (e.g. dbt `varchar` vs Pydantic `str` are now correctly equal).
+  - Dialect-aware normalization: Snowflake `NUMBER(38,0)`→bigint, BigQuery
+    `INT64`/`FLOAT64`, Redshift `SUPER`, Postgres `jsonb`, and more.
+- **Tiered dbt extraction** with graceful degradation:
+  1. `catalog.json` — real warehouse types (high confidence).
+  2. `sqlglot` — a proper SQL parser. Handles CTEs, `||`, window functions, and
+     quoted identifiers that the old regex parser mangled. Detects `SELECT *`
+     and flags the schema as incomplete.
+  3. regex — last-resort best effort (low confidence, never hard-fails).
+- **Confidence-aware validation**: when source columns can't be fully resolved
+  (e.g. `SELECT *`), a missing column is reported as a **warning, not a
+  build-blocking critical**. Type warnings are suppressed for low-confidence
+  (regex-tier) sources. This is the core false-positive guard.
+- **Explicit mapping config** (`mapping:` in `.retl-validator.yml`) for when
+  name heuristics aren't enough — map a target table/column to a differently
+  named source model/column:
+  ```yaml
+  mapping:
+    tables:
+      user_analytics: user_analytics_summary
+    columns:
+      user_analytics:
+        userId: user_id
+  ```
+- **Name normalization**: tables/columns now match across snake_case, camelCase
+  and casing differences (`userId` == `user_id` == `USER_ID`).
+
+### Changed
+- `Schema` now carries `confidence` and `is_complete` (via `metadata`).
+- `BaseExtractor` no longer contains Python-specific type mapping; type
+  normalization lives in the canonical type system. Added `_make_column` helper.
+- Added `sqlglot` as a dependency (imported optionally; falls back to regex if
+  absent).
+
+### Fixed
+- Hardened GitHub API rate-limit handling against non-dict response headers
+  (previously could raise when headers weren't a mapping).
+
 ## [1.0.5] - 2025-01-24
 
 ### Fixed
@@ -66,6 +115,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Limited type inference from SQL
 - No support for complex nested types
 
-[Unreleased]: https://github.com/OGsiji/data-contract-validator/compare/v1.0.5...HEAD
+[Unreleased]: https://github.com/OGsiji/data-contract-validator/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/OGsiji/data-contract-validator/releases/tag/v1.1.0
 [1.0.5]: https://github.com/OGsiji/data-contract-validator/releases/tag/v1.0.5
 [1.0.0]: https://github.com/OGsiji/data-contract-validator/releases/tag/v1.0.0

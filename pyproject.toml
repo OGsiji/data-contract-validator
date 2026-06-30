@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "data-contract-validator"
-version = "1.0.5"
-description = "Critical bug fixes: DBT extractor return paths, function signatures, error handling, and GitHub API rate limiting"
+version = "1.1.0"
+description = "Validate data contracts between dbt models and FastAPI/Pydantic APIs with accurate, low-false-positive schema checks"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
@@ -36,6 +36,7 @@ dependencies = [
     "PyYAML>=6.0",
     "requests>=2.25.0",
     "click>=8.0.0",
+    "sqlglot>=20.0.0",
 ]
 keywords = [
     "dbt", "fastapi", "contract-testing", "api-validation", 

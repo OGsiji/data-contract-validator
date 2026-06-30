@@ -167,9 +167,9 @@ def _interactive_setup() -> Dict[str, Any]:
     click.echo()
     disable_manifest = click.confirm(
         "4️⃣  Disable manifest.json parsing? (recommended if you have CTE-based models)",
-        default=True
+        default=True,
     )
-    
+
     if disable_manifest:
         click.echo("   📄 Will use SQL file parsing (better for complex models)")
     else:
@@ -180,18 +180,17 @@ def _interactive_setup() -> Dict[str, Any]:
         "name": f"contracts-{Path.cwd().name}",
         "source": {
             "dbt": {
-                "project_path": dbt_path, 
-                "auto_compile": True, 
-                "disable_manifest": disable_manifest  # NEW
+                "project_path": dbt_path,
+                "auto_compile": True,
+                "disable_manifest": disable_manifest,  # NEW
             }
         },
         "target": {framework: api_config},
         "validation": {
             "fail_on": ["missing_tables", "missing_required_columns"],
-            "warn_on": ["type_mismatches"]
+            "warn_on": ["type_mismatches"],
         },
     }
-
 
 
 def _quick_setup(framework: str, dbt_path: str) -> Dict[str, Any]:
@@ -500,7 +499,9 @@ def _test_setup(config_file: Path) -> bool:
     default="app/models",
     help="Path in FastAPI repo (file or directory)",
 )
-@click.option("--disable-manifest", is_flag=True, help="Force SQL parsing, ignore manifest.json")
+@click.option(
+    "--disable-manifest", is_flag=True, help="Force SQL parsing, ignore manifest.json"
+)
 def validate(
     config: str,
     dry_run: bool,
@@ -523,8 +524,12 @@ def validate(
 
             # Validate that config is a dictionary
             if not isinstance(config_data, dict):
-                click.echo(f"❌ Configuration file {config} is invalid: expected YAML dictionary")
-                click.echo("💡 Check the file format - it should contain key-value pairs")
+                click.echo(
+                    f"❌ Configuration file {config} is invalid: expected YAML dictionary"
+                )
+                click.echo(
+                    "💡 Check the file format - it should contain key-value pairs"
+                )
                 sys.exit(1)
 
             # Check for required sections
@@ -578,7 +583,7 @@ def _test_configuration(
     dbt_project: str,
     fastapi_local: str,
     fastapi_repo: str,
-    disable_manifest: bool = False
+    disable_manifest: bool = False,
 ):
     """Test configuration without running full validation."""
 
@@ -592,7 +597,9 @@ def _test_configuration(
     else:
         click.echo("      ❌ Path not found")
 
-    if disable_manifest or config_data.get("source", {}).get("dbt", {}).get("disable_manifest", False):
+    if disable_manifest or config_data.get("source", {}).get("dbt", {}).get(
+        "disable_manifest", False
+    ):
         click.echo("   📄 Manifest parsing: disabled")
     else:
         click.echo("   📋 Manifest parsing: enabled")
@@ -631,8 +638,12 @@ def _run_validation(
     )
 
     # Get disable_manifest from config file OR command line flag
-    config_disable_manifest = config_data.get("source", {}).get("dbt", {}).get("disable_manifest", False)
-    use_disable_manifest = disable_manifest or config_disable_manifest  # CLI flag takes precedence
+    config_disable_manifest = (
+        config_data.get("source", {}).get("dbt", {}).get("disable_manifest", False)
+    )
+    use_disable_manifest = (
+        disable_manifest or config_disable_manifest
+    )  # CLI flag takes precedence
 
     if use_disable_manifest:
         click.echo("📄 Manifest parsing disabled")
@@ -716,7 +727,9 @@ def _run_validation(
     # Run validation
     try:
         validator = ContractValidator(
-            source_extractor=dbt_extractor, target_extractor=fastapi_extractor
+            source_extractor=dbt_extractor,
+            target_extractor=fastapi_extractor,
+            mapping=config_data.get("mapping"),
         )
 
         result = validator.validate()
