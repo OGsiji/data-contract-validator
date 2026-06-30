@@ -211,6 +211,36 @@ class TestContractValidator:
         assert len(result.critical_issues) == 0
 
 
+class TestPluralSingularAutoMatch:
+    """dbt plural models should auto-match singular Pydantic classes."""
+
+    def test_plural_source_matches_singular_target_without_mapping(self):
+        source_extractor = Mock()
+        target_extractor = Mock()
+
+        # dbt model is plural 'users'; Pydantic 'User' normalizes to 'user'.
+        source_extractor.extract_schemas.return_value = {
+            "users": Schema(
+                name="users",
+                columns=[{"name": "user_id", "type": "varchar", "required": True}],
+                source="dbt_catalog",
+                metadata={"confidence": "high", "complete": True},
+            )
+        }
+        target_extractor.extract_schemas.return_value = {
+            "user": Schema(
+                name="user",
+                columns=[{"name": "user_id", "type": "str", "required": True}],
+                source="test",
+            )
+        }
+
+        result = ContractValidator(source_extractor, target_extractor).validate()
+
+        assert result.success is True
+        assert len(result.critical_issues) == 0
+
+
 class TestExplicitMapping:
     """Test the explicit table/column mapping config."""
 

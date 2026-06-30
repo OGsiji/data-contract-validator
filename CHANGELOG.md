@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-06-30
+
+### Added
+- **Automatic plural/singular table & column matching.** dbt models are
+  conventionally plural (`users`) while Pydantic classes are singular
+  (`User` → `user`); these now match automatically with no `mapping` needed.
+  Candidate forms are only matched against names that actually exist on the
+  other side, so it never over-strips (`address` is never mistaken for
+  `addres`). Explicit `mapping` still takes precedence.
+
 ## [1.1.0] - 2026-06-30
 
 This release is focused on **accuracy** — making a red check always mean a real
@@ -115,7 +125,8 @@ deploy.
 - Limited type inference from SQL
 - No support for complex nested types
 
-[Unreleased]: https://github.com/OGsiji/data-contract-validator/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/OGsiji/data-contract-validator/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/OGsiji/data-contract-validator/releases/tag/v1.1.1
 [1.1.0]: https://github.com/OGsiji/data-contract-validator/releases/tag/v1.1.0
 [1.0.5]: https://github.com/OGsiji/data-contract-validator/releases/tag/v1.0.5
 [1.0.0]: https://github.com/OGsiji/data-contract-validator/releases/tag/v1.0.0

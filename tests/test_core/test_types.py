@@ -7,6 +7,8 @@ from data_contract_validator.core.types import (
     normalize_sql_type,
     normalize_python_type,
     normalize_name,
+    name_variants,
+    find_match,
     types_compatible,
 )
 
@@ -92,3 +94,29 @@ class TestNormalizeName:
         assert normalize_name("userId") == normalize_name("user_id")
         assert normalize_name("USER_ID") == "user_id"
         assert normalize_name("UserProfile") == "user_profile"
+
+
+class TestPluralSingularMatching:
+    def test_variants_bridge_plural_and_singular(self):
+        # The plural form should be among the singular name's candidates...
+        assert "users" in name_variants("User")
+        assert "categories" in name_variants("category")
+        assert "addresses" in name_variants("address")
+        # ...and vice versa.
+        assert "user" in name_variants("users")
+        assert "category" in name_variants("categories")
+        assert "address" in name_variants("addresses")
+
+    def test_does_not_overstrip_words_ending_in_double_s(self):
+        # 'address' must never collapse to 'addres'.
+        assert "addres" not in name_variants("address")
+
+    def test_find_match_exact_wins_over_variant(self):
+        index = {"user": "SINGULAR", "users": "PLURAL"}
+        assert find_match("users", index) == "PLURAL"
+        assert find_match("user", index) == "SINGULAR"
+
+    def test_find_match_falls_back_to_variant(self):
+        index = {"users": "the_users_model"}
+        assert find_match("User", index) == "the_users_model"
+        assert find_match("missing", index) is None

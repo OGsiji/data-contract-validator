@@ -14,7 +14,7 @@ the tool stays quiet rather than crying wolf.
 
 from enum import Enum
 import re
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 
 class CanonicalType(Enum):
@@ -289,3 +289,59 @@ def normalize_name(name: Optional[str]) -> str:
     text = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", text)
     text = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", text)
     return text.lower().strip()
+
+
+def name_variants(name: Optional[str]) -> List[str]:
+    """Return candidate forms of a name for plural/singular-insensitive matching.
+
+    dbt models are conventionally plural (``users``) while Pydantic classes are
+    singular (``User`` -> ``user``); this bridges that gap automatically.
+
+    The normalized form is always first (so exact matches win). The remaining
+    plural/singular candidates are deliberately over-generated -- callers should
+    only treat a candidate as a match if it equals a name that *actually exists*
+    on the other side, which makes spurious forms (e.g. ``statu`` from
+    ``status``) harmless rather than dangerous.
+    """
+    n = normalize_name(name)
+    variants: List[str] = [n] if n else []
+
+    def add(value: str) -> None:
+        if value and value not in variants:
+            variants.append(value)
+
+    if not n:
+        return variants
+
+    # Pluralize.
+    if n.endswith("y") and len(n) > 1 and n[-2] not in "aeiou":
+        add(n[:-1] + "ies")  # category -> categories
+    if n.endswith(("s", "x", "z", "ch", "sh")):
+        add(n + "es")  # address -> addresses, box -> boxes
+    add(n + "s")  # user -> users
+
+    # Singularize.
+    if n.endswith("ies") and len(n) > 4:
+        add(n[:-3] + "y")  # categories -> category
+    if n.endswith("es") and len(n) > 3:
+        add(n[:-2])  # addresses -> address, boxes -> box
+    if n.endswith("s") and not n.endswith("ss") and len(n) > 2:
+        add(n[:-1])  # users -> user (but never address -> addres)
+
+    return variants
+
+
+def find_match(name: str, index: Dict[str, Any]) -> Any:
+    """Look up ``name`` in an index keyed by normalized names.
+
+    Prefers an exact normalized match, then falls back to a plural/singular
+    variant that actually exists in the index. Returns the matched value or
+    ``None``.
+    """
+    n = normalize_name(name)
+    if n in index:
+        return index[n]
+    for variant in name_variants(name):
+        if variant in index:
+            return index[variant]
+    return None

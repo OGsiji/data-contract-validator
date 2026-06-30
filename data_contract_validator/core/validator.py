@@ -4,7 +4,13 @@ Core validation logic for comparing schemas.
 
 from typing import Dict, List, Optional, Any
 from .models import ValidationResult, ValidationIssue, IssueSeverity, Schema
-from .types import CanonicalType, normalize_name, normalize_sql_type, types_compatible
+from .types import (
+    CanonicalType,
+    find_match,
+    normalize_name,
+    normalize_sql_type,
+    types_compatible,
+)
 from ..extractors.base import BaseExtractor
 
 
@@ -107,11 +113,11 @@ class ContractValidator:
         """Validate a single table."""
         print(f"  🔍 Validating table: {table_name}")
 
-        # Resolve the source table: explicit mapping first, else normalized name.
+        # Resolve the source table: explicit mapping first, then exact normalized
+        # name, then a plural/singular variant (users <-> user).
         target_norm = normalize_name(table_name)
         mapped_source = self.table_map.get(target_norm)
-        lookup_norm = normalize_name(mapped_source) if mapped_source else target_norm
-        source_schema = source_by_norm.get(lookup_norm)
+        source_schema = find_match(mapped_source or table_name, source_by_norm)
         if not source_schema:
             hint = f" (mapped to source '{mapped_source}')" if mapped_source else ""
             self.issues.append(
@@ -152,11 +158,12 @@ class ContractValidator:
         check_types = source_schema.confidence != "low"
 
         for col_norm, col_info in target_columns.items():
-            # Apply an explicit column mapping for this target column, if any.
+            # Apply an explicit column mapping for this target column, if any,
+            # then match by exact name, then by plural/singular variant.
             override = col_overrides.get(col_norm)
-            source_key = normalize_name(override) if override else col_norm
+            source_col = find_match(override or col_info["name"], source_columns)
 
-            if source_key not in source_columns:
+            if source_col is None:
                 is_required = col_info.get("required", True)
                 if is_required and source_complete:
                     severity = IssueSeverity.CRITICAL
@@ -188,7 +195,6 @@ class ContractValidator:
                     )
                 )
             elif check_types:
-                source_col = source_columns[source_key]
                 if not self._columns_type_compatible(source_col, col_info):
                     self.issues.append(
                         ValidationIssue(

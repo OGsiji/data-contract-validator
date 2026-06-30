@@ -151,10 +151,13 @@ validation:
 
 ### When do I need `mapping`?
 
-By default, names are matched across `snake_case` / `camelCase` / casing
-(`UserAnalytics` → `user_analytics`, `userId` → `user_id`). Reach for `mapping`
-only when a model or column is named so differently that the convention can't
-bridge it (e.g. Pydantic `user_id` ↔ dbt `customer_identifier`).
+Most of the time you don't. Names are matched automatically across:
+- `snake_case` / `camelCase` / casing — `UserAnalytics` → `user_analytics`, `userId` → `user_id`
+- **plural ↔ singular** — dbt's plural `users` matches Pydantic's `User` (→ `user`)
+  with no config (and it won't over-match — `address` is never confused with `addres`).
+
+Reach for `mapping` only when a model or column is named so differently that
+convention can't bridge it (e.g. Pydantic `user_id` ↔ dbt `customer_identifier`).
 
 ## 🐍 Python API
 
