@@ -4,6 +4,7 @@ Tests for CLI helper functions.
 
 from unittest.mock import patch, Mock
 
+import yaml
 from click.testing import CliRunner
 
 from data_contract_validator.cli import cli, _github_path_exists, _github_auth_hint
@@ -94,3 +95,54 @@ class TestInitOverwriteProtection:
 
         assert result.exit_code == 0
         assert config_file.read_text() != "version: '1.0'\ncustom: hand-edited\n"
+
+
+class TestInteractiveSetupLocalVsGithubDetection:
+    """A local relative path like 'app/models' -- the tool's own suggested
+    default for the Pydantic-models prompt -- is syntactically identical to
+    a GitHub 'org/repo' string. Regression coverage for it being silently
+    misdetected as a repo (producing a nonsensical 'app/models/app/models'
+    GitHub target) when the directory actually exists on disk."""
+
+    def test_existing_local_directory_is_not_treated_as_github_repo(
+        self, tmp_path, monkeypatch
+    ):
+        (tmp_path / "app" / "models").mkdir(parents=True)
+        (tmp_path / "app" / "models" / "user.py").write_text(
+            "from pydantic import BaseModel\nclass User(BaseModel):\n    id: str\n"
+        )
+        monkeypatch.chdir(tmp_path)
+
+        # Prompts in order: dbt path (default "."), "continue anyway" (no
+        # dbt_project.yml here), framework (default fastapi), models
+        # location (default "app/models"), disable_manifest (default yes).
+        result = CliRunner().invoke(
+            cli,
+            ["init", "--interactive", "--output-dir", str(tmp_path)],
+            input="\ny\n\n\n\n",
+        )
+
+        assert result.exit_code == 0, result.output
+        config = yaml.safe_load((tmp_path / ".retl-validator.yml").read_text())
+        assert config["target"]["fastapi"] == {"type": "local", "path": "app/models"}
+
+    def test_nonexistent_ambiguous_path_asks_before_guessing_github(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.chdir(tmp_path)
+
+        # Prompts: dbt path, continue-anyway (no dbt_project.yml), framework,
+        # models location (app/models, which doesn't exist here), the new
+        # "is this a GitHub repo?" disambiguation (answer "n"), then
+        # continue-anyway again (local path still doesn't exist), then
+        # disable_manifest.
+        result = CliRunner().invoke(
+            cli,
+            ["init", "--interactive", "--output-dir", str(tmp_path)],
+            input="\ny\n\n\nn\ny\n\n",
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "is this a GitHub" in result.output
+        config = yaml.safe_load((tmp_path / ".retl-validator.yml").read_text())
+        assert config["target"]["fastapi"]["type"] == "local"

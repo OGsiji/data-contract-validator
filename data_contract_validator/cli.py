@@ -168,8 +168,24 @@ def _interactive_setup() -> Dict[str, Any]:
     click.echo(help_text)
     api_location = click.prompt(prompt_text, default=default_path, show_default=True)
 
-    # Auto-detect if it's local file/directory or GitHub repo
-    is_github_repo = "/" in api_location and not api_location.startswith((".", "/"))
+    # Auto-detect if it's local file/directory or GitHub repo. A local
+    # relative path like "app/models" is syntactically identical to a GitHub
+    # "org/repo" string, so check disk first -- and only ask when it's
+    # genuinely ambiguous (doesn't exist locally, but still looks like it
+    # could be either).
+    local_path = Path(api_location)
+    looks_like_repo = "/" in api_location and not api_location.startswith((".", "/"))
+
+    if local_path.exists():
+        is_github_repo = False
+    elif looks_like_repo:
+        is_github_repo = click.confirm(
+            f"   '{api_location}' doesn't exist locally — is this a GitHub "
+            f"repo (org/repo) rather than a local path?",
+            default=True,
+        )
+    else:
+        is_github_repo = False
 
     if is_github_repo:
         # Format: "org/repo" or "org/repo/path/to/models"
@@ -201,7 +217,6 @@ def _interactive_setup() -> Dict[str, Any]:
         api_config = {"type": "local", "path": api_location}
 
         # Check if local file/directory exists and provide feedback
-        local_path = Path(api_location)
         if local_path.exists():
             if local_path.is_file():
                 click.echo(f"   ✅ Local file found: {api_location}")
