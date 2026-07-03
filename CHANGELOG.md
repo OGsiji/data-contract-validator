@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-07-03
+
+### Fixed
+- **`table=True` SQLModel classes were incorrectly evaluated as required API
+  contracts.** The standard `class Foo(SQLModel, table=True)` syntax puts
+  `table=True` on the class definition's own keywords, not nested inside a
+  `Call` base — the skip check only looked in the latter, so DB-only tables
+  never matched and produced permanent, unfixable "missing table" criticals.
+- **Explicit `__tablename__` is now resolved and used as the target table
+  name**, instead of only the class-name-derived guess. A class like
+  `VideoViewed` with `__tablename__ = "int_unified_video_viewed"` now matches
+  its real source model without needing a manual `mapping.tables` entry.
+
+### Added
+- `init --interactive` and `contract-validator test` now verify a configured
+  GitHub target path actually exists via the GitHub API, instead of silently
+  accepting a stale or typo'd path.
+- GitHub API error messages hint at setting `GITHUB_TOKEN` when an
+  unauthenticated 404 is ambiguous with a private repo.
+
 ## [1.1.1] - 2026-06-30
 
 ### Added
