@@ -62,3 +62,52 @@ class TestFastAPIExtractor:
         assert "user_id" in column_names
         assert "email" in column_names
         assert "created_at" in column_names
+
+    def test_explicit_tablename_overrides_class_name_heuristic(self):
+        """A SQLModel with __tablename__ should be keyed by that, not the
+        class-name-derived guess -- otherwise `VideoViewed` with
+        `__tablename__ = "int_unified_video_viewed"` never matches its real
+        source table without a manual mapping entry."""
+        content = """
+from sqlmodel import SQLModel
+
+class VideoViewed(SQLModel):
+    __tablename__ = "int_unified_video_viewed"
+    video_id: str
+    user_id: str
+"""
+        extractor = FastAPIExtractor(content, source="test")
+        schemas = extractor.extract_schemas()
+
+        assert "int_unified_video_viewed" in schemas
+        assert "video_viewed" not in schemas
+
+    def test_table_true_via_class_keyword_is_skipped(self):
+        """`class Foo(SQLModel, table=True):` puts `table=True` in the class
+        definition's keywords, not nested inside a Call base -- this is the
+        standard SQLModel syntax and must be recognized as a DB table (and
+        therefore skipped), not evaluated as a required API contract."""
+        content = """
+from sqlmodel import SQLModel, Field
+
+class FeedInteraction(SQLModel, table=True):
+    id: str = Field(primary_key=True)
+    user_id: str
+"""
+        extractor = FastAPIExtractor(content, source="test")
+        schemas = extractor.extract_schemas()
+
+        assert schemas == {}
+
+    def test_table_true_without_tablename_still_skipped(self):
+        """Skip logic must not depend on __tablename__ being present."""
+        content = """
+from sqlmodel import SQLModel
+
+class AffiliateReward(SQLModel, table=True):
+    reward_id: str
+"""
+        extractor = FastAPIExtractor(content, source="test")
+        schemas = extractor.extract_schemas()
+
+        assert schemas == {}

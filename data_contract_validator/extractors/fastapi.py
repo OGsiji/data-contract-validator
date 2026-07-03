@@ -130,7 +130,8 @@ class FastAPIExtractor(BaseExtractor):
             response = requests.get(url, headers=headers)
             if response.status_code != 200:
                 raise ValueError(
-                    f"Could not fetch directory {repo}/{dir_path}: {response.status_code}"
+                    f"Could not fetch directory {repo}/{dir_path}: "
+                    f"{response.status_code}{cls._github_auth_hint(response.status_code, token)}"
                 )
 
             contents = response.json()
@@ -273,7 +274,10 @@ class FastAPIExtractor(BaseExtractor):
                     print(f"   ❌ GitHub API access forbidden: {error_message}")
                 return None
             elif response.status_code == 404:
-                print(f"   ❌ File not found: {path}")
+                print(
+                    f"   ❌ File not found: {path}"
+                    f"{FastAPIExtractor._github_auth_hint(404, token)}"
+                )
                 return None
             else:
                 print(f"   ❌ GitHub API error for {path}: {response.status_code}")
@@ -281,6 +285,22 @@ class FastAPIExtractor(BaseExtractor):
         except Exception as e:
             print(f"   ❌ Error fetching {path} from GitHub: {e}")
             return None
+
+    @staticmethod
+    def _github_auth_hint(status_code: int, token: Optional[str]) -> str:
+        """Suffix explaining a likely-auth-related GitHub API failure.
+
+        GitHub's contents API returns 404 (not 403) for a private repo/path
+        when the request is unauthenticated, so an unauthenticated 404 is
+        ambiguous between "wrong path" and "needs a token" -- surface both
+        possibilities instead of only the first.
+        """
+        if token or status_code not in (403, 404):
+            return ""
+        return (
+            "  (if this is a private repo, set GITHUB_TOKEN: "
+            "export GITHUB_TOKEN=$(gh auth token))"
+        )
 
     def extract_schemas(self) -> Dict[str, Schema]:
         """Extract schemas from FastAPI/Pydantic models."""
@@ -386,12 +406,14 @@ class FastAPIExtractor(BaseExtractor):
         self, node: ast.ClassDef, file_source: str = None
     ) -> Optional[Schema]:
         """Analyze a Pydantic class to extract schema."""
-        # Convert class name to table name
-        table_name = self._class_to_table_name(node.name)
-
         # Skip SQLModel tables (database models, not API models)
         if self._is_sqlmodel_table(node):
             return None
+
+        # An explicit __tablename__ is the source of truth for the target name
+        # (e.g. `class VideoViewed(SQLModel): __tablename__ = "int_unified_video_viewed"`).
+        # Only the class-name heuristic is used when it's absent.
+        table_name = self._get_tablename(node) or self._class_to_table_name(node.name)
 
         columns = []
 
@@ -431,7 +453,18 @@ class FastAPIExtractor(BaseExtractor):
 
     def _is_sqlmodel_table(self, node: ast.ClassDef) -> bool:
         """Check if this is a SQLModel table (database model, not API model)."""
-        # Look for table=True in the class definition
+        # `class Foo(SQLModel, table=True):` puts `table=True` on the class
+        # definition's own keywords, not nested inside a base -- SQLModel here
+        # is a plain ast.Name, not an ast.Call. Check both forms so the more
+        # common `keywords` case isn't silently missed.
+        for keyword in node.keywords:
+            if (
+                keyword.arg == "table"
+                and isinstance(keyword.value, ast.Constant)
+                and keyword.value.value is True
+            ):
+                return True
+
         for base in node.bases:
             if isinstance(base, ast.Call):
                 for keyword in base.keywords:
@@ -442,6 +475,32 @@ class FastAPIExtractor(BaseExtractor):
                     ):
                         return True
         return False
+
+    def _get_tablename(self, node: ast.ClassDef) -> Optional[str]:
+        """Return the value of an explicit `__tablename__ = "..."`, if present."""
+        for item in node.body:
+            targets = None
+            value = None
+            if isinstance(item, ast.Assign):
+                targets = item.targets
+                value = item.value
+            elif isinstance(item, ast.AnnAssign) and item.value is not None:
+                targets = [item.target]
+                value = item.value
+
+            if not targets:
+                continue
+
+            for target in targets:
+                if (
+                    isinstance(target, ast.Name)
+                    and target.id == "__tablename__"
+                    and isinstance(value, ast.Constant)
+                    and isinstance(value.value, str)
+                ):
+                    return value.value
+
+        return None
 
     def _class_to_table_name(self, class_name: str) -> str:
         """Convert CamelCase class name to snake_case table name."""

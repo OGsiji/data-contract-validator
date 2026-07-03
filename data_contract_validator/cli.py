@@ -4,12 +4,45 @@ import json
 import yaml
 import subprocess
 import click
+import requests
 from pathlib import Path
 from typing import Optional, Dict, Any
 
 from .core.validator import ContractValidator
 from .extractors.dbt import DBTExtractor
 from .extractors.fastapi import FastAPIExtractor
+
+
+def _github_path_exists(repo: str, path: str, token: Optional[str] = None) -> Optional[bool]:
+    """Check whether `path` exists in `repo` via the GitHub contents API.
+
+    Returns True/False when the check is conclusive, or None if it couldn't
+    be verified (network error, rate limit, etc.) -- callers should treat
+    None as "unknown", not "missing".
+    """
+    url = f"https://api.github.com/repos/{repo}/contents/{path}"
+    headers = {"Authorization": f"token {token}"} if token else {}
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+    except requests.RequestException:
+        return None
+
+    if response.status_code == 200:
+        return True
+    if response.status_code == 404:
+        return False
+    return None
+
+
+def _github_auth_hint(exists: Optional[bool], token: Optional[str]) -> Optional[str]:
+    """Hint to print when a path lookup came back missing and no token was used.
+
+    GitHub's contents API 404s for private repos when unauthenticated, so a
+    missing path is ambiguous between "wrong path" and "needs GITHUB_TOKEN".
+    """
+    if exists is False and not token:
+        return "if this is a private repo, set GITHUB_TOKEN first: export GITHUB_TOKEN=$(gh auth token)"
+    return None
 
 
 @click.group()
@@ -135,6 +168,20 @@ def _interactive_setup() -> Dict[str, Any]:
 
         api_config = {"type": "github", "repo": repo, "path": path}
         click.echo(f"   🐙 GitHub repo detected: {repo}/{path}")
+
+        token = os.environ.get("GITHUB_TOKEN")
+        exists = _github_path_exists(repo, path, token)
+        if exists is True:
+            click.echo(f"   ✅ Path confirmed on GitHub: {path}")
+        elif exists is False:
+            click.echo(f"   ⚠️  Path not found in {repo}: {path}")
+            hint = _github_auth_hint(exists, token)
+            if hint:
+                click.echo(f"      💡 {hint}")
+            if not click.confirm("   Continue anyway?"):
+                sys.exit(1)
+        # exists is None -> couldn't verify (network issue); stay silent rather
+        # than block setup on something that isn't actually wrong.
     else:
         api_config = {"type": "local", "path": api_location}
 
@@ -414,6 +461,21 @@ def _test_setup(config_file: Path) -> bool:
                 repo = target_info.get("repo")
                 path = target_info.get("path")
                 click.echo(f"      🐙 GitHub repo: {repo}/{path}")
+
+                token = os.environ.get("GITHUB_TOKEN")
+                exists = _github_path_exists(repo, path, token)
+                if exists is True:
+                    click.echo(f"      ✅ Path confirmed: {path}")
+                elif exists is False:
+                    click.echo(f"      ❌ Path not found: {path}")
+                    hint = _github_auth_hint(exists, token)
+                    if hint:
+                        click.echo(f"         💡 {hint}")
+                    all_passed = False
+                else:
+                    click.echo(
+                        "      ⚠️  Could not verify path (network error or rate limit)"
+                    )
 
             else:
                 click.echo(f"      ⚠️  Unknown target type: {target_info.get('type')}")
