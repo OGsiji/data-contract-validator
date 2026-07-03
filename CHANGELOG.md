@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.6] - 2026-07-03
+
+### Fixed
+- **The generated CI workflow silently assumed the default
+  `secrets.GITHUB_TOKEN` could read the target API repo.** That token only
+  has access to the repo the workflow itself runs in — if `target.*.repo`
+  is a *different*, private repo, validation would fail on every PR with no
+  indication why. The generated workflow now documents the fix inline
+  (a personal-access-token secret pointed at that specific repo) and skips
+  the `GITHUB_TOKEN` env block entirely for a `local` target, which never
+  talks to the GitHub API at all.
+
 ## [1.1.5] - 2026-07-03
 
 ### Fixed

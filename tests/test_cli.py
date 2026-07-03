@@ -7,7 +7,12 @@ from unittest.mock import patch, Mock
 import yaml
 from click.testing import CliRunner
 
-from data_contract_validator.cli import cli, _github_path_exists, _github_auth_hint
+from data_contract_validator.cli import (
+    cli,
+    _github_path_exists,
+    _github_auth_hint,
+    _create_github_workflow,
+)
 
 
 class TestGithubPathExists:
@@ -206,3 +211,54 @@ class TestInitOffersPrecommitSetup:
 
         assert result.exit_code == 0, result.output
         assert "pre-commit hook" not in result.output
+
+
+class TestGeneratedWorkflowGithubToken:
+    """The default secrets.GITHUB_TOKEN Actions provides only has access to
+    the repo the workflow runs in -- it can't read a *different*, private
+    target repo. The generated workflow must not silently assume it can."""
+
+    def test_github_target_includes_token_and_private_repo_guidance(self, tmp_path):
+        config = {
+            "source": {"dbt": {"project_path": "."}},
+            "target": {
+                "fastapi": {"type": "github", "repo": "org/api", "path": "app/models"}
+            },
+        }
+        _create_github_workflow(tmp_path, config)
+        content = (
+            tmp_path / ".github" / "workflows" / "validate-contracts.yml"
+        ).read_text()
+
+        assert "GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}" in content
+        assert "private" in content.lower()
+        assert "New repository secret" in content
+
+    def test_local_target_has_no_token_env_block(self, tmp_path):
+        config = {
+            "source": {"dbt": {"project_path": "."}},
+            "target": {"fastapi": {"type": "local", "path": "app/models"}},
+        }
+        _create_github_workflow(tmp_path, config)
+        content = (
+            tmp_path / ".github" / "workflows" / "validate-contracts.yml"
+        ).read_text()
+
+        assert "GITHUB_TOKEN" not in content
+
+    def test_generated_workflow_is_valid_yaml(self, tmp_path):
+        import yaml
+
+        for target in (
+            {"type": "github", "repo": "org/api", "path": "app/models"},
+            {"type": "local", "path": "app/models"},
+        ):
+            config = {
+                "source": {"dbt": {"project_path": "."}},
+                "target": {"fastapi": target},
+            }
+            _create_github_workflow(tmp_path, config, force=True)
+            content = (
+                tmp_path / ".github" / "workflows" / "validate-contracts.yml"
+            ).read_text()
+            assert yaml.safe_load(content)
