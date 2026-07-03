@@ -103,12 +103,30 @@ def init(interactive: bool, framework: str, dbt_path: str, output_dir: str, forc
     if _create_github_workflow(output_path, config, force=force):
         click.echo("✅ Created GitHub Actions workflow")
 
+    # Pre-commit hook is opt-in and asked here so it doesn't require a
+    # separate `setup-precommit` invocation for people who want it from the
+    # start. Only asked in --interactive mode -- the non-interactive path is
+    # meant to run unattended (e.g. scripted/CI setup).
+    if interactive:
+        click.echo()
+        if click.confirm(
+            "🪝 Also set up a pre-commit hook? (runs validation on every commit)",
+            default=True,
+        ):
+            install_hooks = click.confirm(
+                "   Install it now too (runs `pre-commit install`)?", default=True
+            )
+            _setup_precommit(install_hooks)
+
     # Test the setup
     click.echo("\n🧪 Testing your setup...")
     if _test_setup(config_file):
         click.echo("\n🎉 Setup complete! Your contracts are now protected.")
         click.echo("\n🚀 Next steps:")
-        click.echo("   1. git add .retl-validator.yml .github/workflows/")
+        add_targets = ".retl-validator.yml .github/workflows/"
+        if (output_path / ".pre-commit-config.yaml").exists():
+            add_targets += " .pre-commit-config.yaml"
+        click.echo(f"   1. git add {add_targets}")
         click.echo("   2. git commit -m 'Add data contract validation'")
         click.echo("   3. git push (triggers validation in CI/CD)")
         click.echo("   4. Watch it prevent production breaks! 🛡️")
@@ -912,6 +930,11 @@ def _output_github_actions(result):
 @click.option("--install-hooks", is_flag=True, help="Install pre-commit hooks")
 def setup_precommit(install_hooks: bool):
     """🛠️ Setup pre-commit integration for contract validation."""
+    _setup_precommit(install_hooks)
+
+
+def _setup_precommit(install_hooks: bool) -> None:
+    """Write .pre-commit-config.yaml (if absent) and optionally install the hook."""
 
     click.echo("🛠️ Setting up pre-commit integration...")
 

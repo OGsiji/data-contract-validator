@@ -81,7 +81,10 @@ avoids the sharp edges:
    upgraded the package and re-ran `init`. Pass `--force` if you really want
    to regenerate them from the new version's defaults.
 
-3. **Generate the pre-commit hook** (a separate command, not part of `init`):
+3. **Pre-commit hook**: `init --interactive` asks whether you want one set
+   up right after creating the config and CI workflow — say yes there and
+   it's done. To add one later (or if you used non-interactive `init`,
+   which doesn't prompt), run it standalone:
    ```bash
    contract-validator setup-precommit --install-hooks
    ```

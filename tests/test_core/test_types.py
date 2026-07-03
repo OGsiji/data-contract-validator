@@ -43,11 +43,13 @@ class TestNormalizeSqlType:
 class TestNormalizePythonType:
     def test_builtins(self):
         assert normalize_python_type("str") == CanonicalType.STRING
-        assert normalize_python_type("int") == CanonicalType.INTEGER
+        # Python's int is arbitrary-precision, so it's mapped to the wider
+        # BIGINT rank -- see test_python_int_accepts_bigint_source below.
+        assert normalize_python_type("int") == CanonicalType.BIGINT
         assert normalize_python_type("bool") == CanonicalType.BOOLEAN
 
     def test_optional_unwrapped(self):
-        assert normalize_python_type("Optional[int]") == CanonicalType.INTEGER
+        assert normalize_python_type("Optional[int]") == CanonicalType.BIGINT
         assert normalize_python_type("Optional[str]") == CanonicalType.STRING
 
     def test_containers(self):
@@ -87,6 +89,20 @@ class TestTypesCompatible:
     def test_genuine_mismatch_flagged(self):
         # string vs boolean is a real mismatch and must NOT be compatible.
         assert not types_compatible(CanonicalType.STRING, CanonicalType.BOOLEAN)
+
+    def test_python_int_accepts_bigint_source(self):
+        # Real false positive: a dbt count/id column typed `bigint` (very
+        # common) consumed by `Optional[int]` is NOT a truncation risk --
+        # Python's int has no fixed width, unlike a real SQL INTEGER column.
+        assert types_compatible(
+            normalize_sql_type("bigint"), normalize_python_type("Optional[int]")
+        )
+
+    def test_python_int_still_flags_decimal_source(self):
+        # A genuinely fractional source should still warn against `int`.
+        assert not types_compatible(
+            normalize_sql_type("decimal(10,2)"), normalize_python_type("Optional[int]")
+        )
 
 
 class TestNormalizeName:

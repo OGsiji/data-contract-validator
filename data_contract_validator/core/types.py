@@ -163,7 +163,12 @@ def normalize_sql_type(raw_type: Optional[str]) -> CanonicalType:
 
 _PYTHON_TYPE_MAP = {
     "str": CanonicalType.STRING,
-    "int": CanonicalType.INTEGER,
+    # Python's int is arbitrary-precision, unlike a fixed-width SQL INTEGER --
+    # there's no truncation risk consuming a warehouse BIGINT into it. Map to
+    # the wider rank so the numeric-widening check in types_compatible()
+    # doesn't flag e.g. a dbt `bigint` count column against `Optional[int]`
+    # as a mismatch; a genuinely fractional source (DECIMAL/FLOAT) still is.
+    "int": CanonicalType.BIGINT,
     "float": CanonicalType.FLOAT,
     "complex": CanonicalType.FLOAT,
     "bool": CanonicalType.BOOLEAN,

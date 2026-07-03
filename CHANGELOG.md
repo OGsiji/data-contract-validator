@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.5] - 2026-07-03
+
+### Fixed
+- **Python `int` was mapped to the narrower `INTEGER` canonical rank,
+  producing a false "type mismatch" warning against any dbt column typed
+  `bigint`** (a very common type for count/id columns). Python's `int` is
+  arbitrary-precision, unlike a fixed-width SQL `INTEGER` column, so there's
+  no real truncation risk — it's now mapped to the wider `BIGINT` rank.
+  A genuinely fractional source (`DECIMAL`/`FLOAT`) is still flagged.
+
+### Added
+- `init --interactive` now offers to set up a pre-commit hook as part of the
+  same wizard, instead of requiring a separate `setup-precommit` invocation.
+  (The GitHub Actions CI workflow was already created automatically by
+  `init` for both the interactive and non-interactive paths — only the
+  pre-commit step needed folding in.)
+
 ## [1.1.4] - 2026-07-03
 
 ### Changed

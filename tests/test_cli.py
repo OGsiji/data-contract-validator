@@ -115,11 +115,12 @@ class TestInteractiveSetupAsksLocalOrGithubExplicitly:
 
         # Prompts: dbt path, continue-anyway (no dbt_project.yml here),
         # framework, local-or-github (default "local"), models location
-        # (default "app/models"), disable_manifest.
+        # (default "app/models"), disable_manifest, then "no" to the
+        # pre-commit hook question (kept out of scope for this test).
         result = CliRunner().invoke(
             cli,
             ["init", "--interactive", "--output-dir", str(tmp_path)],
-            input="\ny\n\n\n\n\n",
+            input="\ny\n\n\n\n\nn\n",
         )
 
         assert result.exit_code == 0, result.output
@@ -133,12 +134,12 @@ class TestInteractiveSetupAsksLocalOrGithubExplicitly:
         monkeypatch.chdir(tmp_path)
 
         # Prompts: dbt path, continue-anyway, framework, local-or-github
-        # ("github"), repo (org/repo), path within repo (default), then
-        # disable_manifest.
+        # ("github"), repo (org/repo), path within repo (default),
+        # disable_manifest, then "no" to the pre-commit hook question.
         result = CliRunner().invoke(
             cli,
             ["init", "--interactive", "--output-dir", str(tmp_path)],
-            input="\ny\n\ngithub\nmy-org/my-api\n\n\n",
+            input="\ny\n\ngithub\nmy-org/my-api\n\n\nn\n",
         )
 
         assert result.exit_code == 0, result.output
@@ -148,3 +149,60 @@ class TestInteractiveSetupAsksLocalOrGithubExplicitly:
             "repo": "my-org/my-api",
             "path": "app/models",
         }
+
+
+class TestInitOffersPrecommitSetup:
+    """`init --interactive` used to require a separate `setup-precommit`
+    invocation for a pre-commit hook. It now offers to set one up as part of
+    the same wizard, so people who want both don't need two commands."""
+
+    def _init_local_input(self, extra: str) -> str:
+        # dbt path, continue-anyway, framework, local-or-github (default
+        # local), models location (default), disable_manifest, then
+        # whatever pre-commit answers the test supplies.
+        return "\ny\n\n\n\n\n" + extra
+
+    @patch("data_contract_validator.cli._setup_precommit")
+    def test_declining_precommit_does_not_create_config(
+        self, mock_setup_precommit, tmp_path, monkeypatch
+    ):
+        (tmp_path / "app" / "models").mkdir(parents=True)
+        (tmp_path / "app" / "models" / "user.py").write_text(
+            "from pydantic import BaseModel\nclass User(BaseModel):\n    id: str\n"
+        )
+        monkeypatch.chdir(tmp_path)
+
+        result = CliRunner().invoke(
+            cli,
+            ["init", "--interactive", "--output-dir", str(tmp_path)],
+            input=self._init_local_input("n\n"),
+        )
+
+        assert result.exit_code == 0, result.output
+        mock_setup_precommit.assert_not_called()
+
+    @patch("data_contract_validator.cli._setup_precommit")
+    def test_accepting_precommit_calls_setup_with_install_choice(
+        self, mock_setup_precommit, tmp_path, monkeypatch
+    ):
+        (tmp_path / "app" / "models").mkdir(parents=True)
+        (tmp_path / "app" / "models" / "user.py").write_text(
+            "from pydantic import BaseModel\nclass User(BaseModel):\n    id: str\n"
+        )
+        monkeypatch.chdir(tmp_path)
+
+        # Accept the hook, decline installing it immediately.
+        result = CliRunner().invoke(
+            cli,
+            ["init", "--interactive", "--output-dir", str(tmp_path)],
+            input=self._init_local_input("y\nn\n"),
+        )
+
+        assert result.exit_code == 0, result.output
+        mock_setup_precommit.assert_called_once_with(False)
+
+    def test_non_interactive_init_never_asks_about_precommit(self, tmp_path):
+        result = CliRunner().invoke(cli, ["init", "--output-dir", str(tmp_path)])
+
+        assert result.exit_code == 0, result.output
+        assert "pre-commit hook" not in result.output
