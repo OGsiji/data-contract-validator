@@ -63,29 +63,44 @@ def cli():
 )
 @click.option("--dbt-path", default=".", help="DBT project path")
 @click.option("--output-dir", default=".", help="Output directory")
-def init(interactive: bool, framework: str, dbt_path: str, output_dir: str):
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Overwrite an existing .retl-validator.yml / workflow file instead of refusing",
+)
+def init(interactive: bool, framework: str, dbt_path: str, output_dir: str, force: bool):
     """🚀 Initialize contract validation for your project (takes 30 seconds)."""
 
     click.echo("🛡️ Setting up Data Contract Validation...")
     click.echo("   This prevents production breaks forever!")
     click.echo()
 
+    output_path = Path(output_dir)
+    config_file = output_path / ".retl-validator.yml"
+
+    # Re-running init is how people pick up a newer version's config
+    # defaults, but .retl-validator.yml commonly accumulates hand-edits
+    # (path fixes, mapping.tables entries) -- silently clobbering that on
+    # every run would lose real work, so require an explicit --force.
+    if config_file.exists() and not force:
+        click.echo(f"⚠️  {config_file} already exists — refusing to overwrite it.")
+        click.echo("   💡 Re-run with --force to regenerate it from scratch,")
+        click.echo("      or edit the existing file directly.")
+        sys.exit(1)
+
     if interactive:
         config = _interactive_setup()
     else:
         config = _quick_setup(framework, dbt_path)
 
-    output_path = Path(output_dir)
-
     # Write config file
-    config_file = output_path / ".retl-validator.yml"
     with open(config_file, "w") as f:
         yaml.dump(config, f, default_flow_style=False, indent=2)
 
     click.echo(f"✅ Created configuration: {config_file}")
 
     # Create GitHub Actions workflow
-    if _create_github_workflow(output_path, config):
+    if _create_github_workflow(output_path, config, force=force):
         click.echo("✅ Created GitHub Actions workflow")
 
     # Test the setup
@@ -289,10 +304,19 @@ def _quick_setup(framework: str, dbt_path: str) -> Dict[str, Any]:
     }
 
 
-def _create_github_workflow(output_path: Path, config: Dict[str, Any]) -> bool:
+def _create_github_workflow(
+    output_path: Path, config: Dict[str, Any], force: bool = False
+) -> bool:
     """Auto-create GitHub Actions workflow."""
 
     workflow_dir = output_path / ".github" / "workflows"
+    workflow_file = workflow_dir / "validate-contracts.yml"
+
+    if workflow_file.exists() and not force:
+        click.echo(f"   ⚠️  {workflow_file} already exists — leaving it as-is.")
+        click.echo("      Use --force to regenerate it.")
+        return False
+
     workflow_dir.mkdir(parents=True, exist_ok=True)
 
     # Determine trigger paths based on config
@@ -368,7 +392,6 @@ jobs:
           }})
 """
 
-    workflow_file = workflow_dir / "validate-contracts.yml"
     try:
         with open(workflow_file, "w") as f:
             f.write(workflow_content)

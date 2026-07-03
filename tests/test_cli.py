@@ -4,7 +4,9 @@ Tests for CLI helper functions.
 
 from unittest.mock import patch, Mock
 
-from data_contract_validator.cli import _github_path_exists, _github_auth_hint
+from click.testing import CliRunner
+
+from data_contract_validator.cli import cli, _github_path_exists, _github_auth_hint
 
 
 class TestGithubPathExists:
@@ -55,3 +57,40 @@ class TestGithubAuthHint:
 
     def test_no_hint_when_unverifiable(self):
         assert _github_auth_hint(None, None) is None
+
+
+class TestInitOverwriteProtection:
+    """`.retl-validator.yml` commonly accumulates hand-edits (path fixes,
+    mapping.tables entries) -- re-running `init` to pick up a newer version's
+    defaults must not silently destroy that without --force."""
+
+    def test_refuses_to_overwrite_existing_config_without_force(self, tmp_path):
+        config_file = tmp_path / ".retl-validator.yml"
+        config_file.write_text("version: '1.0'\ncustom: hand-edited\n")
+
+        result = CliRunner().invoke(cli, ["init", "--output-dir", str(tmp_path)])
+
+        assert result.exit_code != 0
+        assert config_file.read_text() == "version: '1.0'\ncustom: hand-edited\n"
+
+    def test_refuses_to_overwrite_existing_workflow_without_force(self, tmp_path):
+        workflow_dir = tmp_path / ".github" / "workflows"
+        workflow_dir.mkdir(parents=True)
+        workflow_file = workflow_dir / "validate-contracts.yml"
+        workflow_file.write_text("custom: hand-edited\n")
+
+        result = CliRunner().invoke(cli, ["init", "--output-dir", str(tmp_path)])
+
+        assert result.exit_code == 0
+        assert workflow_file.read_text() == "custom: hand-edited\n"
+
+    def test_force_overwrites_existing_config(self, tmp_path):
+        config_file = tmp_path / ".retl-validator.yml"
+        config_file.write_text("version: '1.0'\ncustom: hand-edited\n")
+
+        result = CliRunner().invoke(
+            cli, ["init", "--output-dir", str(tmp_path), "--force"]
+        )
+
+        assert result.exit_code == 0
+        assert config_file.read_text() != "version: '1.0'\ncustom: hand-edited\n"

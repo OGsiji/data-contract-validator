@@ -73,6 +73,11 @@ avoids the sharp edges:
    it at a GitHub path, it now checks the path actually exists before writing
    the config — so a typo surfaces here instead of at `validate` time.
 
+   `init` refuses to touch an existing `.retl-validator.yml` or workflow
+   file — it won't clobber hand-added `mapping` entries just because you
+   upgraded the package and re-ran `init`. Pass `--force` if you really want
+   to regenerate them from the new version's defaults.
+
 3. **Generate the pre-commit hook** (a separate command, not part of `init`):
    ```bash
    contract-validator setup-precommit --install-hooks

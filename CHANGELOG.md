@@ -27,6 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub API error messages hint at setting `GITHUB_TOKEN` when an
   unauthenticated 404 is ambiguous with a private repo.
 
+### Changed
+- **`contract-validator init` no longer silently overwrites an existing
+  `.retl-validator.yml` or generated workflow file.** Re-running `init` (e.g.
+  after upgrading to pick up a newer version's config defaults) now refuses
+  and exits if either file already exists — pass `--force` to regenerate
+  them from scratch. Previously this was an unconditional overwrite with no
+  confirmation, which could silently destroy hand-added `mapping` entries.
+
 ## [1.1.1] - 2026-06-30
 
 ### Added
