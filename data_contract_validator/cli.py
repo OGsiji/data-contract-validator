@@ -120,7 +120,7 @@ def init(interactive: bool, framework: str, dbt_path: str, output_dir: str, forc
 
 def _interactive_setup() -> Dict[str, Any]:
     """Interactive setup wizard with directory support."""
-    click.echo("📋 Quick Setup (3 questions):")
+    click.echo("📋 Quick Setup (a handful of questions):")
     click.echo()
 
     # Question 1: DBT project location
@@ -148,57 +148,46 @@ def _interactive_setup() -> Dict[str, Any]:
         show_default=True,
     )
 
-    # Question 3: API models location with directory support
-    click.echo()
     if framework == "fastapi":
         default_path = "app/models"  # Default to directory
-        prompt_text = "3️⃣  Where are your Pydantic models? (file or directory)"
-        help_text = (
-            "   💡 Examples: 'app/models.py' (single file) or 'app/models' (directory)"
-        )
+        location_noun = "Pydantic models"
     elif framework == "django":
         default_path = "models.py"
-        prompt_text = "3️⃣  Where are your Django models?"
-        help_text = "   💡 Examples: 'myapp/models.py' or 'models'"
+        location_noun = "Django models"
     else:
         default_path = "models"
-        prompt_text = "3️⃣  Where are your API models?"
-        help_text = "   💡 Can be a file (models.py) or directory (models/)"
+        location_noun = "API models"
 
-    click.echo(help_text)
-    api_location = click.prompt(prompt_text, default=default_path, show_default=True)
+    # Question 3: local vs. GitHub -- asked explicitly rather than guessed
+    # from the path's shape. A local relative path like "app/models" (the
+    # default above) is syntactically identical to a GitHub "org/repo"
+    # string, so there's no reliable way to infer this from the string
+    # alone; asking up front avoids the wizard silently misreading its own
+    # suggested default as a repo.
+    click.echo()
+    location_kind = click.prompt(
+        f"3️⃣  Are your {location_noun} in this local project, or a different GitHub repo?",
+        type=click.Choice(["local", "github"]),
+        default="local",
+        show_default=True,
+    )
 
-    # Auto-detect if it's local file/directory or GitHub repo. A local
-    # relative path like "app/models" is syntactically identical to a GitHub
-    # "org/repo" string, so check disk first -- and only ask when it's
-    # genuinely ambiguous (doesn't exist locally, but still looks like it
-    # could be either).
-    local_path = Path(api_location)
-    looks_like_repo = "/" in api_location and not api_location.startswith((".", "/"))
-
-    if local_path.exists():
-        is_github_repo = False
-    elif looks_like_repo:
-        is_github_repo = click.confirm(
-            f"   '{api_location}' doesn't exist locally — is this a GitHub "
-            f"repo (org/repo) rather than a local path?",
-            default=True,
+    click.echo()
+    if location_kind == "github":
+        repo = click.prompt(
+            "4️⃣  GitHub repo (org/repo)", default="", show_default=False
         )
-    else:
-        is_github_repo = False
+        while "/" not in repo or repo.count("/") != 1:
+            click.echo("   ⚠️  Expected the form 'org/repo', e.g. 'my-org/my-api'")
+            repo = click.prompt("4️⃣  GitHub repo (org/repo)")
 
-    if is_github_repo:
-        # Format: "org/repo" or "org/repo/path/to/models"
-        parts = api_location.split("/")
-        if len(parts) >= 2:
-            repo = "/".join(parts[:2])
-            path = "/".join(parts[2:]) if len(parts) > 2 else "app/models"
-        else:
-            repo = api_location
-            path = "app/models"
+        path = click.prompt(
+            f"   Path to your {location_noun} within {repo} (file or directory)",
+            default=default_path,
+            show_default=True,
+        )
 
         api_config = {"type": "github", "repo": repo, "path": path}
-        click.echo(f"   🐙 GitHub repo detected: {repo}/{path}")
 
         token = os.environ.get("GITHUB_TOKEN")
         exists = _github_path_exists(repo, path, token)
@@ -214,9 +203,15 @@ def _interactive_setup() -> Dict[str, Any]:
         # exists is None -> couldn't verify (network issue); stay silent rather
         # than block setup on something that isn't actually wrong.
     else:
+        api_location = click.prompt(
+            f"4️⃣  Where are your {location_noun}? (file or directory)",
+            default=default_path,
+            show_default=True,
+        )
         api_config = {"type": "local", "path": api_location}
 
         # Check if local file/directory exists and provide feedback
+        local_path = Path(api_location)
         if local_path.exists():
             if local_path.is_file():
                 click.echo(f"   ✅ Local file found: {api_location}")
@@ -240,10 +235,10 @@ def _interactive_setup() -> Dict[str, Any]:
             if not click.confirm("   Continue anyway?"):
                 sys.exit(1)
 
-            # New question about manifest parsing
+    # Question 5: manifest parsing
     click.echo()
     disable_manifest = click.confirm(
-        "4️⃣  Disable manifest.json parsing? (recommended if you have CTE-based models)",
+        "5️⃣  Disable manifest.json parsing? (recommended if you have CTE-based models)",
         default=True,
     )
 

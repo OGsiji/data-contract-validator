@@ -67,11 +67,14 @@ avoids the sharp edges:
    ```bash
    contract-validator init --interactive
    ```
-   You'll be asked three things: where your dbt project is, which API
-   framework you use, and where your Pydantic/SQLModel models live (a local
-   path, or `org/repo` / `org/repo/path/to/models` for GitHub). If you point
-   it at a GitHub path, it now checks the path actually exists before writing
-   the config — so a typo surfaces here instead of at `validate` time.
+   You'll be asked: where your dbt project is, which API framework you use,
+   whether your models live in this local project or a different GitHub
+   repo, and then the local path (or the `org/repo` + path within it). It's
+   asked explicitly rather than guessed from the path's shape — a local path
+   like `app/models` is syntactically identical to a GitHub `org/repo`
+   string, so there's no reliable way to infer which one you mean. If you
+   pick GitHub, it checks the path actually exists before writing the
+   config — so a typo surfaces here instead of at `validate` time.
 
    `init` refuses to touch an existing `.retl-validator.yml` or workflow
    file — it won't clobber hand-added `mapping` entries just because you

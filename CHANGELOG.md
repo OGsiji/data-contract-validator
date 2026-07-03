@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.1.2] - 2026-07-03
+## [1.1.3] - 2026-07-03
+
+Supersedes 1.1.2, which was only ever published to TestPyPI for verification
+and never released to production PyPI.
 
 ### Fixed
 - **`table=True` SQLModel classes were incorrectly evaluated as required API
@@ -19,13 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   name**, instead of only the class-name-derived guess. A class like
   `VideoViewed` with `__tablename__ = "int_unified_video_viewed"` now matches
   its real source model without needing a manual `mapping.tables` entry.
-- **`init --interactive`'s local-vs-GitHub-repo detection misfired on the
-  tool's own suggested default.** Any two-segment relative local path (e.g.
-  `app/models`, the FastAPI prompt's default) is syntactically identical to
-  a GitHub `org/repo` string, and was always guessed as a repo, producing a
-  nonsensical `app/models/app/models` GitHub target. Existence on disk is
-  now checked first; the GitHub guess is only made — and now with an
-  explicit confirmation prompt — when the path doesn't exist locally.
+- **`init --interactive` no longer guesses local vs. GitHub from the path's
+  shape.** A local relative path like `app/models` (the wizard's own
+  suggested default) is syntactically identical to a GitHub `org/repo`
+  string, and was always guessed as a repo, producing a nonsensical
+  `app/models/app/models` GitHub target. The wizard now asks explicitly
+  ("local project or a different GitHub repo?") before asking for the
+  path, and asks for the repo and the path within it as separate prompts.
 
 ### Added
 - `init --interactive` and `contract-validator test` now verify a configured

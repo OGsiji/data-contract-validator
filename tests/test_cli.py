@@ -97,14 +97,14 @@ class TestInitOverwriteProtection:
         assert config_file.read_text() != "version: '1.0'\ncustom: hand-edited\n"
 
 
-class TestInteractiveSetupLocalVsGithubDetection:
-    """A local relative path like 'app/models' -- the tool's own suggested
-    default for the Pydantic-models prompt -- is syntactically identical to
-    a GitHub 'org/repo' string. Regression coverage for it being silently
-    misdetected as a repo (producing a nonsensical 'app/models/app/models'
-    GitHub target) when the directory actually exists on disk."""
+class TestInteractiveSetupAsksLocalOrGithubExplicitly:
+    """The wizard asks 'local or GitHub?' explicitly instead of guessing
+    from the path's shape. Guessing based on the presence of '/' previously
+    misdetected the tool's own suggested default ('app/models') as a GitHub
+    'org/repo' string, producing a nonsensical 'app/models/app/models'
+    target -- asking up front removes the ambiguity entirely."""
 
-    def test_existing_local_directory_is_not_treated_as_github_repo(
+    def test_local_choice_produces_local_config_for_default_path(
         self, tmp_path, monkeypatch
     ):
         (tmp_path / "app" / "models").mkdir(parents=True)
@@ -113,36 +113,38 @@ class TestInteractiveSetupLocalVsGithubDetection:
         )
         monkeypatch.chdir(tmp_path)
 
-        # Prompts in order: dbt path (default "."), "continue anyway" (no
-        # dbt_project.yml here), framework (default fastapi), models
-        # location (default "app/models"), disable_manifest (default yes).
+        # Prompts: dbt path, continue-anyway (no dbt_project.yml here),
+        # framework, local-or-github (default "local"), models location
+        # (default "app/models"), disable_manifest.
         result = CliRunner().invoke(
             cli,
             ["init", "--interactive", "--output-dir", str(tmp_path)],
-            input="\ny\n\n\n\n",
+            input="\ny\n\n\n\n\n",
         )
 
         assert result.exit_code == 0, result.output
         config = yaml.safe_load((tmp_path / ".retl-validator.yml").read_text())
         assert config["target"]["fastapi"] == {"type": "local", "path": "app/models"}
 
-    def test_nonexistent_ambiguous_path_asks_before_guessing_github(
-        self, tmp_path, monkeypatch
+    @patch("data_contract_validator.cli._github_path_exists", return_value=None)
+    def test_github_choice_asks_for_repo_and_path_separately(
+        self, mock_exists, tmp_path, monkeypatch
     ):
         monkeypatch.chdir(tmp_path)
 
-        # Prompts: dbt path, continue-anyway (no dbt_project.yml), framework,
-        # models location (app/models, which doesn't exist here), the new
-        # "is this a GitHub repo?" disambiguation (answer "n"), then
-        # continue-anyway again (local path still doesn't exist), then
+        # Prompts: dbt path, continue-anyway, framework, local-or-github
+        # ("github"), repo (org/repo), path within repo (default), then
         # disable_manifest.
         result = CliRunner().invoke(
             cli,
             ["init", "--interactive", "--output-dir", str(tmp_path)],
-            input="\ny\n\n\nn\ny\n\n",
+            input="\ny\n\ngithub\nmy-org/my-api\n\n\n",
         )
 
         assert result.exit_code == 0, result.output
-        assert "is this a GitHub" in result.output
         config = yaml.safe_load((tmp_path / ".retl-validator.yml").read_text())
-        assert config["target"]["fastapi"]["type"] == "local"
+        assert config["target"]["fastapi"] == {
+            "type": "github",
+            "repo": "my-org/my-api",
+            "path": "app/models",
+        }
