@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.7] - 2026-07-04
+
+### Changed
+- **The generated CI workflow now defaults `GITHUB_TOKEN` to
+  `secrets.API_REPO_TOKEN`** — a token you create yourself — instead of the
+  auto-provided `secrets.GITHUB_TOKEN`, which only has access to the repo
+  the workflow runs in. A personal access token works identically for
+  public and private targets, so this removes the silent-failure case
+  entirely rather than just documenting it (1.1.6's fix). Still skipped
+  entirely for a `local` target.
+
+### Added
+- The generated CI workflow now includes a commented scaffold for
+  `dbt deps && dbt docs generate`, unlocking Tier 1 (real warehouse types)
+  in CI instead of that only being mentioned in prose docs. Commented out
+  by default since it needs the user's warehouse adapter and credentials
+  filled in, which can't be inferred.
+
 ## [1.1.6] - 2026-07-03
 
 ### Fixed

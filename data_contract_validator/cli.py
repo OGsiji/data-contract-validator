@@ -366,14 +366,21 @@ def _create_github_workflow(
     if target_is_github:
         validate_step = """    - name: Validate contracts
       env:
-        # secrets.GITHUB_TOKEN is auto-provided by Actions, but it only has
-        # access to THIS repository. If the target repo above is private,
-        # replace this with a personal access token (repo read access to
-        # that specific repo) stored as its own secret, e.g.:
-        #   GITHUB_TOKEN: ${{ secrets.API_REPO_TOKEN }}
-        # Settings -> Secrets and variables -> Actions -> New repository secret.
-        # A public target repo works fine with the default token as-is.
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Defaults to a token YOU create, not the auto-provided
+        # secrets.GITHUB_TOKEN -- that one only has access to THIS
+        # repository, so it silently fails the first time the target repo
+        # above is private. A personal access token works for both public
+        # and private targets, so it's the default rather than a fallback:
+        #   1. Create a PAT with read access to the target repo above
+        #      (fine-grained: Contents, read-only; classic: `repo` scope).
+        #   2. This repo's Settings -> Secrets and variables -> Actions ->
+        #      New repository secret -> name it API_REPO_TOKEN, paste the
+        #      token as the value.
+        #      (Secret names can't start with GITHUB_ -- that prefix is
+        #      reserved -- which is why this isn't just called GITHUB_TOKEN.
+        #      The env var below can be, though: the CLI always reads a
+        #      variable named GITHUB_TOKEN regardless of the secret's name.)
+        GITHUB_TOKEN: ${{ secrets.API_REPO_TOKEN }}
       run: |
         contract-validator validate \\
           --config .retl-validator.yml \\
@@ -415,6 +422,24 @@ jobs:
 
     - name: Install data contract validator
       run: pip install data-contract-validator
+
+    # Optional but recommended: unlocks Tier 1 (real warehouse column types)
+    # instead of Tier 2/3 SQL-parsed guesses -- see the "How extraction
+    # works" section of the README. Commented out because it needs your
+    # warehouse adapter and credentials, which this template can't know:
+    #
+    # - name: Install dbt
+    #   run: pip install dbt-core dbt-<your-adapter>  # dbt-snowflake, dbt-bigquery, dbt-redshift, dbt-postgres, dbt-databricks, ...
+    # - name: Generate dbt artifacts (manifest.json + catalog.json)
+    #   working-directory: {dbt_path}
+    #   env:
+    #     # Whatever your profiles.yml needs -- e.g. for Snowflake:
+    #     DBT_ACCOUNT: ${{{{ secrets.DBT_ACCOUNT }}}}
+    #     DBT_USER: ${{{{ secrets.DBT_USER }}}}
+    #     DBT_PASSWORD: ${{{{ secrets.DBT_PASSWORD }}}}
+    #   run: |
+    #     dbt deps
+    #     dbt docs generate
 
 {validate_step}
     

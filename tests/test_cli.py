@@ -214,11 +214,14 @@ class TestInitOffersPrecommitSetup:
 
 
 class TestGeneratedWorkflowGithubToken:
-    """The default secrets.GITHUB_TOKEN Actions provides only has access to
-    the repo the workflow runs in -- it can't read a *different*, private
-    target repo. The generated workflow must not silently assume it can."""
+    """The auto-provided secrets.GITHUB_TOKEN only has access to the repo
+    the workflow runs in -- it can't read a *different*, private target
+    repo. Rather than defaulting to it and documenting the fix, the
+    generated workflow defaults straight to a user-created PAT secret,
+    which works for both public and private targets, so there's no
+    silent-failure case to walk into in the first place."""
 
-    def test_github_target_includes_token_and_private_repo_guidance(self, tmp_path):
+    def test_github_target_defaults_to_api_repo_token_secret(self, tmp_path):
         config = {
             "source": {"dbt": {"project_path": "."}},
             "target": {
@@ -230,7 +233,11 @@ class TestGeneratedWorkflowGithubToken:
             tmp_path / ".github" / "workflows" / "validate-contracts.yml"
         ).read_text()
 
-        assert "GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}" in content
+        assert "GITHUB_TOKEN: ${{ secrets.API_REPO_TOKEN }}" in content
+        # The auto-provided token is only mentioned in the explanatory
+        # comment (as the thing NOT to use) -- it must not appear as an
+        # actual directive anywhere.
+        assert "${{ secrets.GITHUB_TOKEN }}" not in content
         assert "private" in content.lower()
         assert "New repository secret" in content
 
@@ -262,3 +269,42 @@ class TestGeneratedWorkflowGithubToken:
                 tmp_path / ".github" / "workflows" / "validate-contracts.yml"
             ).read_text()
             assert yaml.safe_load(content)
+
+
+class TestGeneratedWorkflowDbtTier1Scaffold:
+    """The generated workflow never ran `dbt docs generate`, so CI always
+    fell back to Tier 2/3 SQL parsing instead of real warehouse types --
+    even though the README's own example implied this was wired up. A
+    commented scaffold can't run without the user's warehouse credentials,
+    but it should at least be visible in the actual generated file, not
+    just mentioned in prose docs."""
+
+    def test_includes_commented_dbt_docs_generate_scaffold(self, tmp_path):
+        config = {
+            "source": {"dbt": {"project_path": "./dbt-project"}},
+            "target": {"fastapi": {"type": "local", "path": "app/models"}},
+        }
+        _create_github_workflow(tmp_path, config)
+        content = (
+            tmp_path / ".github" / "workflows" / "validate-contracts.yml"
+        ).read_text()
+
+        assert "dbt docs generate" in content
+        assert "working-directory: ./dbt-project" in content
+        # Must be commented out -- it can't run without real credentials.
+        assert "#   run: |\n    #     dbt deps\n    #     dbt docs generate" in content
+
+    def test_scaffold_present_regardless_of_target_type(self, tmp_path):
+        for target in (
+            {"type": "github", "repo": "org/api", "path": "app/models"},
+            {"type": "local", "path": "app/models"},
+        ):
+            config = {
+                "source": {"dbt": {"project_path": "."}},
+                "target": {"fastapi": target},
+            }
+            _create_github_workflow(tmp_path, config, force=True)
+            content = (
+                tmp_path / ".github" / "workflows" / "validate-contracts.yml"
+            ).read_text()
+            assert "dbt docs generate" in content

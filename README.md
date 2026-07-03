@@ -156,7 +156,9 @@ CI job.
 
 > 💡 **Tip:** run `dbt docs generate` in CI before validating to unlock Tier 1
 > (real types). Without it, you still get accurate column-presence checks from
-> Tier 2.
+> Tier 2. The workflow `init` generates includes this step already, commented
+> out — it needs your warehouse adapter and credentials filled in, which
+> can't be guessed, so it isn't active by default.
 
 ### FastAPI side
 
@@ -260,43 +262,42 @@ so without a token this looks identical to a plain typo in `path` —
 check `target.*.path` actually exists and will point you at this if the
 lookup 404s with no token set.
 
-**In CI**, the workflow `init` generates wires up
-`GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` automatically — but
-`secrets.GITHUB_TOKEN` is a token Actions auto-generates that only has
-access to **the repository the workflow is running in**. If your dbt repo
-and your API repo are different repos and the API repo is private, that
-default token cannot read it, and validation will fail on every PR with the
-same 404-looks-like-a-typo symptom as above. To fix it:
+**In CI**, the workflow `init` generates for a GitHub target wires up
+`GITHUB_TOKEN: ${{ secrets.API_REPO_TOKEN }}` — a token **you** create,
+*not* the auto-provided `secrets.GITHUB_TOKEN`. That auto-provided token
+only has access to **the repository the workflow is running in**, so if
+your dbt repo and your API repo are different repos, it silently can't read
+the target the first time that target is private — and a PAT works
+identically for a public target too, so there's no reason to default to the
+token that only sometimes works. To finish the setup the generated workflow
+expects:
 
 1. Create a token with read access to the *target* repo — a
    [fine-grained PAT](https://github.com/settings/personal-access-tokens/new)
    scoped to just that repo's Contents (read-only) is the least-privilege
    option; a classic PAT with the `repo` scope also works.
 2. In the repo running the workflow (your dbt repo): **Settings → Secrets
-   and variables → Actions → New repository secret**. Name it `API_REPO_TOKEN`
-   (or similar) and paste the token as the value.
+   and variables → Actions → New repository secret**. Name it
+   **`API_REPO_TOKEN`** exactly (that's the name the generated workflow
+   already references) and paste the token as the value.
 
    > ⚠️ **GitHub rejects any secret name starting with `GITHUB_`** — it's a
    > reserved prefix. You cannot create a secret literally called
    > `GITHUB_TOKEN`; that's not a naming suggestion, the UI will refuse it.
-3. Point the workflow's `GITHUB_TOKEN` env var at that secret instead of the
-   default one — these are two different things with confusingly similar
-   names:
-   ```yaml
-   env:
-     GITHUB_TOKEN: ${{ secrets.API_REPO_TOKEN }}
-   #  ^^^^^^^^^^^   this is just a local variable name, can be anything
-   #                            ^^^^^^^^^^^^^^ this is the *secret*, whose
-   #                            name is what GitHub restricts
-   ```
-   The env var read by the CLI must be named `GITHUB_TOKEN` (left side); the
-   *secret* backing it (right side, after `secrets.`) is what needs a
-   different name, and can be anything that isn't `GITHUB_`-prefixed.
+   > That's exactly why the workflow's secret is named `API_REPO_TOKEN`
+   > instead, even though the environment variable it feeds is `GITHUB_TOKEN`
+   > — two different things with confusingly similar names:
+   > ```yaml
+   > env:
+   >   GITHUB_TOKEN: ${{ secrets.API_REPO_TOKEN }}
+   > #  ^^^^^^^^^^^   local variable name, can be anything -- the CLI
+   > #                just needs it called GITHUB_TOKEN to find it
+   > #                            ^^^^^^^^^^^^^^ the *secret's* name --
+   > #                            this is what GitHub restricts
+   > ```
 
-If the target repo is public, none of this is needed — the default
-`secrets.GITHUB_TOKEN` (or no token at all, at a lower rate limit) works
-fine, and `init` skips generating this block entirely for a `local` target
-since it never talks to the GitHub API.
+Skip all of this for a `local` target — `init` omits the whole `env:` block
+since a local target never talks to the GitHub API at all.
 
 ### When do I need `mapping`?
 
@@ -368,15 +369,15 @@ jobs:
       # Optional: `dbt docs generate` here for real warehouse types (Tier 1)
       - run: contract-validator validate --output github
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.API_REPO_TOKEN }}
 ```
 
 `GITHUB_TOKEN` here is only needed if `target` is a `github` repo (`init`
-omits the whole `env:` block for a `local` target). If that target repo is
-**private and different from the repo this workflow runs in**, the default
-`secrets.GITHUB_TOKEN` won't have access to it — see
+omits the whole `env:` block for a `local` target). `secrets.API_REPO_TOKEN`
+is a token you create yourself, not GitHub's auto-provided
+`secrets.GITHUB_TOKEN` — see
 [Private GitHub repos need `GITHUB_TOKEN`](#private-github-repos-need-github_token)
-above for the personal-access-token secret you need instead.
+above for why, and how to set it up.
 
 ### Pre-commit
 
