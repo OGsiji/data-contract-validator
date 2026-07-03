@@ -273,16 +273,25 @@ same 404-looks-like-a-typo symptom as above. To fix it:
    scoped to just that repo's Contents (read-only) is the least-privilege
    option; a classic PAT with the `repo` scope also works.
 2. In the repo running the workflow (your dbt repo): **Settings → Secrets
-   and variables → Actions → New repository secret**. Name it something
-   like `API_REPO_TOKEN` and paste the token as the value.
+   and variables → Actions → New repository secret**. Name it `API_REPO_TOKEN`
+   (or similar) and paste the token as the value.
+
+   > ⚠️ **GitHub rejects any secret name starting with `GITHUB_`** — it's a
+   > reserved prefix. You cannot create a secret literally called
+   > `GITHUB_TOKEN`; that's not a naming suggestion, the UI will refuse it.
 3. Point the workflow's `GITHUB_TOKEN` env var at that secret instead of the
-   default one:
+   default one — these are two different things with confusingly similar
+   names:
    ```yaml
    env:
      GITHUB_TOKEN: ${{ secrets.API_REPO_TOKEN }}
+   #  ^^^^^^^^^^^   this is just a local variable name, can be anything
+   #                            ^^^^^^^^^^^^^^ this is the *secret*, whose
+   #                            name is what GitHub restricts
    ```
-   (The env var read by the CLI is always named `GITHUB_TOKEN`; the *secret*
-   backing it can be named anything.)
+   The env var read by the CLI must be named `GITHUB_TOKEN` (left side); the
+   *secret* backing it (right side, after `secrets.`) is what needs a
+   different name, and can be anything that isn't `GITHUB_`-prefixed.
 
 If the target repo is public, none of this is needed — the default
 `secrets.GITHUB_TOKEN` (or no token at all, at a lower rate limit) works
