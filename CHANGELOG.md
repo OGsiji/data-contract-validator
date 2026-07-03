@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-07-03
+
+### Changed
+- **`table=True` SQLModel classes are no longer skipped during extraction.**
+  Whether a table is meant to come from dbt is business knowledge that can't
+  be recovered from the Python source — two structurally identical
+  `table=True` classes can need opposite treatment (one is a normal dbt-fed
+  table an API also returns directly; another is populated by a separate
+  pipeline like Kafka and was never meant to have a dbt model). Blanket-
+  skipping every `table=True` class silently exempted the former case from
+  validation too, which is likely the more common pattern — defeating the
+  tool's purpose for it. `table=True` classes are now validated like any
+  other target.
+- Added `mapping.exclude: [<table>, ...]` so the latter case (genuinely no
+  source model, e.g. Kafka-populated) can be stated explicitly instead of
+  inferred from `table=True`. Excluded tables are skipped entirely and never
+  produce a "missing table" issue.
+
 ## [1.1.3] - 2026-07-03
 
 Supersedes 1.1.2, which was only ever published to TestPyPI for verification

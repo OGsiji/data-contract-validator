@@ -315,3 +315,82 @@ class TestExplicitMapping:
 
         assert result.success is True
         assert len(result.critical_issues) == 0
+
+    def test_exclude_skips_a_target_table_with_no_source_model(self):
+        """A target table that's genuinely populated by something other than
+        dbt (e.g. a Kafka stream) has no source model on purpose -- that's
+        not inferable from the code, so it must be excluded explicitly
+        rather than producing a permanent, unfixable 'missing table'."""
+        source_extractor, target_extractor = self._extractors(
+            {},  # no source models at all
+            {
+                "feed_interaction": Schema(
+                    name="feed_interaction",
+                    columns=[{"name": "id", "type": "str", "required": True}],
+                    source="test",
+                )
+            },
+        )
+
+        # Without exclude: no matching source model -> missing table (critical).
+        no_exclude = ContractValidator(source_extractor, target_extractor).validate()
+        assert no_exclude.success is False
+        assert no_exclude.critical_issues[0].category == "Missing Table"
+
+        # With exclude: the table is skipped entirely, no issue raised.
+        mapping = {"exclude": ["feed_interaction"]}
+        excluded = ContractValidator(
+            source_extractor, target_extractor, mapping=mapping
+        ).validate()
+        assert excluded.success is True
+        assert len(excluded.issues) == 0
+
+    def test_exclude_does_not_affect_other_tables(self):
+        """Excluding one table must not suppress real issues on others."""
+        source_extractor, target_extractor = self._extractors(
+            {},
+            {
+                "feed_interaction": Schema(
+                    name="feed_interaction",
+                    columns=[{"name": "id", "type": "str", "required": True}],
+                    source="test",
+                ),
+                "orders": Schema(
+                    name="orders",
+                    columns=[{"name": "order_id", "type": "str", "required": True}],
+                    source="test",
+                ),
+            },
+        )
+
+        mapping = {"exclude": ["feed_interaction"]}
+        result = ContractValidator(
+            source_extractor, target_extractor, mapping=mapping
+        ).validate()
+
+        assert result.success is False
+        assert len(result.critical_issues) == 1
+        assert result.critical_issues[0].table == "orders"
+
+    def test_exclude_is_normalized_like_table_mapping(self):
+        """Exclude entries should match case/style-insensitively, same as
+        `mapping.tables`, so 'FeedInteraction' and 'feed_interaction' are
+        treated as the same table."""
+        source_extractor, target_extractor = self._extractors(
+            {},
+            {
+                "feed_interaction": Schema(
+                    name="feed_interaction",
+                    columns=[{"name": "id", "type": "str", "required": True}],
+                    source="test",
+                )
+            },
+        )
+
+        mapping = {"exclude": ["FeedInteraction"]}
+        result = ContractValidator(
+            source_extractor, target_extractor, mapping=mapping
+        ).validate()
+
+        assert result.success is True
+        assert len(result.issues) == 0

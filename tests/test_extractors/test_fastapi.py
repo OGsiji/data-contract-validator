@@ -82,32 +82,29 @@ class VideoViewed(SQLModel):
         assert "int_unified_video_viewed" in schemas
         assert "video_viewed" not in schemas
 
-    def test_table_true_via_class_keyword_is_skipped(self):
-        """`class Foo(SQLModel, table=True):` puts `table=True` in the class
-        definition's keywords, not nested inside a Call base -- this is the
-        standard SQLModel syntax and must be recognized as a DB table (and
-        therefore skipped), not evaluated as a required API contract."""
+    def test_table_true_classes_are_extracted_not_skipped(self):
+        """`table=True` alone carries no information about whether a source
+        (dbt) model is expected to exist for a table -- two structurally
+        identical `table=True` classes can need opposite treatment (one
+        genuinely has no dbt model because it's Kafka-populated, another is
+        a normal dbt-fed table someone also uses as their API response
+        shape). So `table=True` must NOT cause a class to be skipped at
+        extraction time; the extractor has no way to make that call
+        correctly. Tables that truly have no source model are excluded via
+        the validator's `mapping.exclude`, an explicit human decision, not
+        an inferred one."""
         content = """
 from sqlmodel import SQLModel, Field
 
-class FeedInteraction(SQLModel, table=True):
-    id: str = Field(primary_key=True)
-    user_id: str
+class CreatorAudienceDemographics(SQLModel, table=True):
+    __tablename__ = "creator_audience_demographics"
+    creator_id: str = Field(primary_key=True)
+    fan_count: int
 """
         extractor = FastAPIExtractor(content, source="test")
         schemas = extractor.extract_schemas()
 
-        assert schemas == {}
-
-    def test_table_true_without_tablename_still_skipped(self):
-        """Skip logic must not depend on __tablename__ being present."""
-        content = """
-from sqlmodel import SQLModel
-
-class AffiliateReward(SQLModel, table=True):
-    reward_id: str
-"""
-        extractor = FastAPIExtractor(content, source="test")
-        schemas = extractor.extract_schemas()
-
-        assert schemas == {}
+        assert "creator_audience_demographics" in schemas
+        columns = [c["name"] for c in schemas["creator_audience_demographics"].columns]
+        assert "creator_id" in columns
+        assert "fan_count" in columns

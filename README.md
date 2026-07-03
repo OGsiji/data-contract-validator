@@ -112,10 +112,10 @@ avoids the sharp edges:
    - Target name doesn't match the dbt model by convention (renamed/prefixed)
      → add an entry under `mapping.tables` in `.retl-validator.yml` (see
      [When do I need `mapping`?](#when-do-i-need-mapping)).
-   - A `SQLModel(table=True)` class with no corresponding dbt model at all
-     (e.g. populated by a separate streaming pipeline) → this should be
-     skipped automatically; if it's still flagged, please
-     [open an issue](https://github.com/OGsiji/data-contract-validator/issues).
+   - A table that's genuinely populated by something other than dbt (e.g. a
+     separate streaming pipeline) and has no source model on purpose → add
+     it to `mapping.exclude`. `table=True` alone is **not** used to infer
+     this automatically — see [FastAPI side](#fastapi-side) for why.
 
 8. **For accurate type-checking** (not just column-presence checks), run
    `dbt docs generate` before `validate` so it picks up `catalog.json` (Tier 1,
@@ -158,8 +158,18 @@ CI job.
 ### FastAPI side
 
 Pydantic / SQLModel classes are parsed from source with Python's `ast` (no
-imports executed). `Optional[...]` controls whether a field is required;
-`table=True` SQLModel classes (DB tables, not API contracts) are skipped.
+imports executed). `Optional[...]` controls whether a field is required.
+An explicit `__tablename__` is used as the table name when present;
+otherwise the class name is converted to `snake_case`.
+
+`table=True` SQLModel classes are validated the same as any other class —
+they are **not** skipped. Whether a table is meant to come from dbt is
+business knowledge that isn't recoverable from the Python source: two
+structurally identical `table=True` classes can need opposite treatment (one
+is a normal dbt-fed table your API also returns directly; another is
+populated by a Kafka stream and was never meant to have a dbt model). Use
+`mapping.exclude` to state the latter case explicitly rather than relying on
+`table=True` to imply it.
 
 ## 🚦 What gets flagged
 
@@ -214,6 +224,10 @@ mapping:
     user_analytics:
       # target column : source column
       userId: user_id
+  # Target tables with no source model on purpose (e.g. Kafka-populated,
+  # not dbt) -- see "When do I need mapping?" below.
+  exclude:
+    - feed_interaction
 
 validation:
   fail_on: ["missing_tables", "missing_required_columns"]
@@ -244,8 +258,26 @@ Most of the time you don't. Names are matched automatically across:
 - **plural ↔ singular** — dbt's plural `users` matches Pydantic's `User` (→ `user`)
   with no config (and it won't over-match — `address` is never confused with `addres`).
 
-Reach for `mapping` only when a model or column is named so differently that
-convention can't bridge it (e.g. Pydantic `user_id` ↔ dbt `customer_identifier`).
+Reach for `mapping.tables` / `mapping.columns` only when a model or column is
+named so differently that convention can't bridge it (e.g. Pydantic
+`user_id` ↔ dbt `customer_identifier`).
+
+`mapping.exclude` is different — it's not about renamed models, it's for a
+target table that has **no source model on purpose**, because it's
+populated by something other than dbt (a Kafka stream, a cron job, etc.).
+This can't be inferred from the code (a `table=True` SQLModel class looks
+identical whether or not dbt is supposed to feed it), so it has to be a
+deliberate, human-stated exception:
+
+```yaml
+mapping:
+  exclude:
+    - feed_interaction
+    - affiliate_reward
+```
+
+Anything not listed is validated normally — including `table=True` classes,
+which are treated the same as any other target and are not silently skipped.
 
 ## 🐍 Python API
 

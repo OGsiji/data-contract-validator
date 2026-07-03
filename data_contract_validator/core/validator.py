@@ -37,9 +37,16 @@ class ContractValidator:
                     {
                       "tables":  {"<target_table>": "<source_table>"},
                       "columns": {"<target_table>": {"<target_col>": "<source_col>"}},
+                      "exclude": ["<target_table>", ...],
                     }
 
                 Keys are matched case/style-insensitively (userId == user_id).
+
+                ``exclude`` is for targets that are known to have no source
+                model on purpose (e.g. a table populated by a separate
+                streaming pipeline instead of dbt) -- that's business
+                knowledge no extractor can infer from the code, so it must
+                be stated explicitly rather than guessed.
         """
         self.source_extractor = source_extractor
         self.target_extractor = target_extractor
@@ -56,6 +63,10 @@ class ContractValidator:
                 normalize_name(tcol): scol for tcol, scol in cols.items()
             }
             for table, cols in (mapping.get("columns") or {}).items()
+        }
+        # normalized set of target tables to skip entirely
+        self.excluded_tables: set = {
+            normalize_name(t) for t in (mapping.get("exclude") or [])
         }
 
     def validate(self) -> ValidationResult:
@@ -88,6 +99,9 @@ class ContractValidator:
         # Validate each target schema against source
         print("🔍 Validating schema compatibility...")
         for table_name, target_schema in target_schemas.items():
+            if normalize_name(table_name) in self.excluded_tables:
+                print(f"    ⏭️  Skipping excluded table: {table_name}")
+                continue
             self._validate_table(table_name, target_schema, source_by_norm)
 
         # Determine success

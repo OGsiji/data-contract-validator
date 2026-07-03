@@ -405,11 +405,17 @@ class FastAPIExtractor(BaseExtractor):
     def _analyze_pydantic_class(
         self, node: ast.ClassDef, file_source: str = None
     ) -> Optional[Schema]:
-        """Analyze a Pydantic class to extract schema."""
-        # Skip SQLModel tables (database models, not API models)
-        if self._is_sqlmodel_table(node):
-            return None
+        """Analyze a Pydantic class to extract schema.
 
+        `table=True` SQLModel classes are intentionally NOT skipped here:
+        whether a table is expected to come from dbt is business knowledge
+        that isn't recoverable from the Python source (two structurally
+        identical `table=True` classes can have opposite answers), so it
+        can't be inferred from the class definition. Tables that genuinely
+        have no corresponding dbt model (e.g. Kafka-populated) are excluded
+        via the explicit `mapping.exclude` config instead -- see
+        ContractValidator.
+        """
         # An explicit __tablename__ is the source of truth for the target name
         # (e.g. `class VideoViewed(SQLModel): __tablename__ = "int_unified_video_viewed"`).
         # Only the class-name heuristic is used when it's absent.
@@ -450,31 +456,6 @@ class FastAPIExtractor(BaseExtractor):
             source=source,
             metadata={"confidence": "high", "complete": True},
         )
-
-    def _is_sqlmodel_table(self, node: ast.ClassDef) -> bool:
-        """Check if this is a SQLModel table (database model, not API model)."""
-        # `class Foo(SQLModel, table=True):` puts `table=True` on the class
-        # definition's own keywords, not nested inside a base -- SQLModel here
-        # is a plain ast.Name, not an ast.Call. Check both forms so the more
-        # common `keywords` case isn't silently missed.
-        for keyword in node.keywords:
-            if (
-                keyword.arg == "table"
-                and isinstance(keyword.value, ast.Constant)
-                and keyword.value.value is True
-            ):
-                return True
-
-        for base in node.bases:
-            if isinstance(base, ast.Call):
-                for keyword in base.keywords:
-                    if (
-                        keyword.arg == "table"
-                        and isinstance(keyword.value, ast.Constant)
-                        and keyword.value.value is True
-                    ):
-                        return True
-        return False
 
     def _get_tablename(self, node: ast.ClassDef) -> Optional[str]:
         """Return the value of an explicit `__tablename__ = "..."`, if present."""
