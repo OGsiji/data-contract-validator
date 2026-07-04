@@ -13,8 +13,14 @@ from .extractors.dbt import DBTExtractor
 from .extractors.fastapi import FastAPIExtractor
 
 
-def _github_path_exists(repo: str, path: str, token: Optional[str] = None) -> Optional[bool]:
+def _github_path_exists(
+    repo: str, path: str, token: Optional[str] = None, ref: Optional[str] = None
+) -> Optional[bool]:
     """Check whether `path` exists in `repo` via the GitHub contents API.
+
+    Args:
+        ref: Branch, tag, or commit SHA to check against. Defaults to the
+            repo's default branch when omitted.
 
     Returns True/False when the check is conclusive, or None if it couldn't
     be verified (network error, rate limit, etc.) -- callers should treat
@@ -22,8 +28,9 @@ def _github_path_exists(repo: str, path: str, token: Optional[str] = None) -> Op
     """
     url = f"https://api.github.com/repos/{repo}/contents/{path}"
     headers = {"Authorization": f"token {token}"} if token else {}
+    params = {"ref": ref} if ref else {}
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=headers, params=params, timeout=10)
     except requests.RequestException:
         return None
 
@@ -205,10 +212,18 @@ def _interactive_setup() -> Dict[str, Any]:
             show_default=True,
         )
 
+        ref = click.prompt(
+            "   Branch, tag, or commit to read from (blank = repo's default branch)",
+            default="",
+            show_default=False,
+        ).strip()
+
         api_config = {"type": "github", "repo": repo, "path": path}
+        if ref:
+            api_config["ref"] = ref
 
         token = os.environ.get("GITHUB_TOKEN")
-        exists = _github_path_exists(repo, path, token)
+        exists = _github_path_exists(repo, path, token, ref or None)
         if exists is True:
             click.echo(f"   ✅ Path confirmed on GitHub: {path}")
         elif exists is False:
@@ -558,10 +573,11 @@ def _test_setup(config_file: Path) -> bool:
             elif target_info.get("type") == "github":
                 repo = target_info.get("repo")
                 path = target_info.get("path")
-                click.echo(f"      🐙 GitHub repo: {repo}/{path}")
+                ref = target_info.get("ref")
+                click.echo(f"      🐙 GitHub repo: {repo}/{path}" + (f"@{ref}" if ref else ""))
 
                 token = os.environ.get("GITHUB_TOKEN")
-                exists = _github_path_exists(repo, path, token)
+                exists = _github_path_exists(repo, path, token, ref)
                 if exists is True:
                     click.echo(f"      ✅ Path confirmed: {path}")
                 elif exists is False:
@@ -660,6 +676,12 @@ def _test_setup(config_file: Path) -> bool:
     help="Path in FastAPI repo (file or directory)",
 )
 @click.option(
+    "--fastapi-ref",
+    help="Branch, tag, or commit to read the FastAPI repo from "
+    "(default: the repo's default branch) -- e.g. --fastapi-ref dev "
+    "to validate against a dev branch instead of main",
+)
+@click.option(
     "--disable-manifest", is_flag=True, help="Force SQL parsing, ignore manifest.json"
 )
 def validate(
@@ -670,6 +692,7 @@ def validate(
     fastapi_local: str,
     fastapi_repo: str,
     fastapi_path: str,
+    fastapi_ref: str,
     disable_manifest: bool,
 ):
     """🔍 Validate data contracts (prevents production breaks)."""
@@ -734,6 +757,7 @@ def validate(
         fastapi_local,
         fastapi_repo,
         fastapi_path,
+        fastapi_ref,
         disable_manifest,
     )
 
@@ -788,6 +812,7 @@ def _run_validation(
     fastapi_local: str,
     fastapi_repo: str,
     fastapi_path: str,
+    fastapi_ref: str = None,
     disable_manifest: bool = False,
 ):
     """Run the actual validation with manifest disable option."""
@@ -839,19 +864,20 @@ def _run_validation(
         elif fastapi_repo:
             # Use GitHub repository
             github_token = os.environ.get("GITHUB_TOKEN")
+            ref_suffix = f"@{fastapi_ref}" if fastapi_ref else ""
 
             # Check if fastapi_path ends with .py (file) or not (directory)
             if fastapi_path.endswith(".py"):
                 click.echo(
-                    f"📄 Using FastAPI models file: {fastapi_repo}/{fastapi_path}"
+                    f"📄 Using FastAPI models file: {fastapi_repo}/{fastapi_path}{ref_suffix}"
                 )
             else:
                 click.echo(
-                    f"📁 Using FastAPI models directory: {fastapi_repo}/{fastapi_path}"
+                    f"📁 Using FastAPI models directory: {fastapi_repo}/{fastapi_path}{ref_suffix}"
                 )
 
             fastapi_extractor = FastAPIExtractor.from_github_repo(
-                repo=fastapi_repo, path=fastapi_path, token=github_token
+                repo=fastapi_repo, path=fastapi_path, token=github_token, ref=fastapi_ref
             )
         else:
             # Get from config
@@ -871,10 +897,14 @@ def _run_validation(
 
             elif target_config.get("type") == "github":
                 github_token = os.environ.get("GITHUB_TOKEN")
+                # CLI --fastapi-ref overrides the config's target.*.ref, same
+                # precedence as the other --fastapi-* overrides.
+                ref = fastapi_ref or target_config.get("ref")
                 fastapi_extractor = FastAPIExtractor.from_github_repo(
                     repo=target_config.get("repo"),
                     path=target_config.get("path", "app/models"),
                     token=github_token,
+                    ref=ref,
                 )
             else:
                 click.echo("❌ No valid FastAPI configuration found")

@@ -47,6 +47,46 @@ class TestFastAPIExtractor:
         assert extractor.content == content
         assert "github:org/repo/path/to/file.py" == extractor.source
 
+    @patch("requests.get")
+    def test_from_github_repo_with_ref_passes_ref_as_query_param(self, mock_get):
+        """A branch/tag/commit ref lets someone validate a dev branch's API
+        models against dbt instead of always reading the default branch."""
+        import base64
+
+        content = "test content"
+        encoded_content = base64.b64encode(content.encode()).decode()
+
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"content": encoded_content}
+        mock_get.return_value = mock_response
+
+        extractor = FastAPIExtractor.from_github_repo(
+            "org/repo", "path/to/file.py", ref="dev"
+        )
+
+        assert extractor.content == content
+        assert extractor.source == "github:org/repo/path/to/file.py@dev"
+        _, kwargs = mock_get.call_args
+        assert kwargs["params"] == {"ref": "dev"}
+
+    @patch("requests.get")
+    def test_from_github_repo_without_ref_sends_no_ref_param(self, mock_get):
+        """No ref means GitHub's default: the repo's default branch."""
+        import base64
+
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "content": base64.b64encode(b"x").decode()
+        }
+        mock_get.return_value = mock_response
+
+        FastAPIExtractor.from_github_repo("org/repo", "path/to/file.py")
+
+        _, kwargs = mock_get.call_args
+        assert kwargs["params"] == {}
+
     def test_extract_schemas(self, sample_fastapi_content):
         """Test schema extraction from FastAPI models."""
         extractor = FastAPIExtractor(sample_fastapi_content, source="test")

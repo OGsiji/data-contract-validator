@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.8] - 2026-07-04
+
+### Added
+- **A GitHub target can now specify which branch, tag, or commit to read
+  from**, instead of always reading the repo's default branch. Set it via
+  `target.*.ref` in `.retl-validator.yml`, the new `--fastapi-ref` CLI flag,
+  or the `init --interactive` wizard (which now asks for it after the repo
+  and path). Useful for validating a `dev`/staging branch's in-progress API
+  changes against dbt before they merge to `main`.
+
 ## [1.1.7] - 2026-07-04
 
 ### Changed

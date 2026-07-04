@@ -45,6 +45,22 @@ class TestGithubPathExists:
         _, kwargs = mock_get.call_args
         assert kwargs["headers"]["Authorization"] == "token secret"
 
+    @patch("data_contract_validator.cli.requests.get")
+    def test_sends_ref_as_query_param_when_provided(self, mock_get):
+        mock_get.return_value = Mock(status_code=200)
+        _github_path_exists("org/repo", "app/models", ref="dev")
+
+        _, kwargs = mock_get.call_args
+        assert kwargs["params"] == {"ref": "dev"}
+
+    @patch("data_contract_validator.cli.requests.get")
+    def test_no_ref_param_when_omitted(self, mock_get):
+        mock_get.return_value = Mock(status_code=200)
+        _github_path_exists("org/repo", "app/models")
+
+        _, kwargs = mock_get.call_args
+        assert kwargs["params"] == {}
+
 
 class TestGithubAuthHint:
     """A 404 on GitHub's contents API is ambiguous between a wrong path and
@@ -139,12 +155,13 @@ class TestInteractiveSetupAsksLocalOrGithubExplicitly:
         monkeypatch.chdir(tmp_path)
 
         # Prompts: dbt path, continue-anyway, framework, local-or-github
-        # ("github"), repo (org/repo), path within repo (default),
-        # disable_manifest, then "no" to the pre-commit hook question.
+        # ("github"), repo (org/repo), path within repo (default), ref
+        # (blank = repo's default branch), disable_manifest, then "no" to
+        # the pre-commit hook question.
         result = CliRunner().invoke(
             cli,
             ["init", "--interactive", "--output-dir", str(tmp_path)],
-            input="\ny\n\ngithub\nmy-org/my-api\n\n\nn\n",
+            input="\ny\n\ngithub\nmy-org/my-api\n\n\n\nn\n",
         )
 
         assert result.exit_code == 0, result.output
@@ -154,6 +171,31 @@ class TestInteractiveSetupAsksLocalOrGithubExplicitly:
             "repo": "my-org/my-api",
             "path": "app/models",
         }
+
+    @patch("data_contract_validator.cli._github_path_exists", return_value=None)
+    def test_github_choice_with_ref_includes_it_in_config(
+        self, mock_exists, tmp_path, monkeypatch
+    ):
+        monkeypatch.chdir(tmp_path)
+
+        result = CliRunner().invoke(
+            cli,
+            ["init", "--interactive", "--output-dir", str(tmp_path)],
+            input="\ny\n\ngithub\nmy-org/my-api\n\ndev\n\nn\n",
+        )
+
+        assert result.exit_code == 0, result.output
+        config = yaml.safe_load((tmp_path / ".retl-validator.yml").read_text())
+        assert config["target"]["fastapi"] == {
+            "type": "github",
+            "repo": "my-org/my-api",
+            "path": "app/models",
+            "ref": "dev",
+        }
+        args, _ = mock_exists.call_args
+        assert args[0] == "my-org/my-api"
+        assert args[1] == "app/models"
+        assert args[3] == "dev"
 
 
 class TestInitOffersPrecommitSetup:

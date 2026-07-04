@@ -98,36 +98,45 @@ class FastAPIExtractor(BaseExtractor):
 
     @classmethod
     def from_github_repo(
-        cls, repo: str, path: str, token: str = None
+        cls, repo: str, path: str, token: str = None, ref: str = None
     ) -> "FastAPIExtractor":
-        """Create extractor from GitHub repository - supports files and directories."""
+        """Create extractor from GitHub repository - supports files and directories.
+
+        Args:
+            ref: Branch, tag, or commit SHA to read from. Defaults to the
+                repo's default branch when omitted (GitHub API behavior).
+                Useful for validating a dev/staging branch's API models
+                against dbt instead of main.
+        """
 
         # First, check if it's a file or directory
         if path.endswith(".py"):
             # Single file
-            content = cls._fetch_github_file(repo, path, token)
+            content = cls._fetch_github_file(repo, path, token, ref)
             if not content:
                 raise ValueError(f"Could not fetch {repo}/{path} from GitHub")
-            return cls(content, source=f"github:{repo}/{path}")
+            source = f"github:{repo}/{path}" + (f"@{ref}" if ref else "")
+            return cls(content, source=source)
         else:
             # Assume it's a directory
-            return cls._from_github_directory(repo, path, token)
+            return cls._from_github_directory(repo, path, token, ref)
 
     @classmethod
     def _from_github_directory(
-        cls, repo: str, dir_path: str, token: str = None
+        cls, repo: str, dir_path: str, token: str = None, ref: str = None
     ) -> "FastAPIExtractor":
         """Fetch all Python files from a GitHub directory."""
 
         # Get directory contents from GitHub API
         url = f"https://api.github.com/repos/{repo}/contents/{dir_path}"
         headers = {}
+        params = {"ref": ref} if ref else {}
 
         if token:
             headers["Authorization"] = f"token {token}"
 
         try:
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, params=params)
             if response.status_code != 200:
                 raise ValueError(
                     f"Could not fetch directory {repo}/{dir_path}: "
@@ -148,7 +157,9 @@ class FastAPIExtractor(BaseExtractor):
                     ):
                         continue
 
-                    file_content = cls._fetch_github_file(repo, item["path"], token)
+                    file_content = cls._fetch_github_file(
+                        repo, item["path"], token, ref
+                    )
                     if file_content:
                         all_files_content[item["name"]] = file_content
                         print(f"   📄 Downloaded: {item['name']}")
@@ -157,7 +168,7 @@ class FastAPIExtractor(BaseExtractor):
                     # Recursively fetch subdirectories
                     try:
                         subdir_files = cls._fetch_github_directory_recursive(
-                            repo, item["path"], token
+                            repo, item["path"], token, ref
                         )
                         for sub_path, sub_content in subdir_files.items():
                             all_files_content[f"{item['name']}/{sub_path}"] = (
@@ -173,7 +184,8 @@ class FastAPIExtractor(BaseExtractor):
                 f"   ✅ Downloaded {len(all_files_content)} files from {repo}/{dir_path}"
             )
 
-            extractor = cls(source=f"github_directory:{repo}/{dir_path}")
+            source = f"github_directory:{repo}/{dir_path}" + (f"@{ref}" if ref else "")
+            extractor = cls(source=source)
             extractor.all_files_content = all_files_content
             return extractor
 
@@ -182,11 +194,12 @@ class FastAPIExtractor(BaseExtractor):
 
     @classmethod
     def _fetch_github_directory_recursive(
-        cls, repo: str, dir_path: str, token: str = None
+        cls, repo: str, dir_path: str, token: str = None, ref: str = None
     ) -> Dict[str, str]:
         """Recursively fetch Python files from GitHub directory."""
         url = f"https://api.github.com/repos/{repo}/contents/{dir_path}"
         headers = {}
+        params = {"ref": ref} if ref else {}
 
         if token:
             headers["Authorization"] = f"token {token}"
@@ -194,7 +207,7 @@ class FastAPIExtractor(BaseExtractor):
         files_content = {}
 
         try:
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, params=params)
             if response.status_code == 200:
                 contents = response.json()
 
@@ -205,7 +218,7 @@ class FastAPIExtractor(BaseExtractor):
                             and item["name"] != "__init__.py"
                         ):
                             file_content = cls._fetch_github_file(
-                                repo, item["path"], token
+                                repo, item["path"], token, ref
                             )
                             if file_content:
                                 files_content[item["name"]] = file_content
@@ -213,7 +226,7 @@ class FastAPIExtractor(BaseExtractor):
                     elif item["type"] == "dir":
                         # Recursive call for subdirectories
                         subdir_files = cls._fetch_github_directory_recursive(
-                            repo, item["path"], token
+                            repo, item["path"], token, ref
                         )
                         for sub_path, sub_content in subdir_files.items():
                             files_content[f"{item['name']}/{sub_path}"] = sub_content
@@ -224,16 +237,19 @@ class FastAPIExtractor(BaseExtractor):
         return files_content
 
     @staticmethod
-    def _fetch_github_file(repo: str, path: str, token: str = None) -> Optional[str]:
+    def _fetch_github_file(
+        repo: str, path: str, token: str = None, ref: str = None
+    ) -> Optional[str]:
         """Fetch file content from GitHub API with rate limit handling."""
         url = f"https://api.github.com/repos/{repo}/contents/{path}"
         headers = {}
+        params = {"ref": ref} if ref else {}
 
         if token:
             headers["Authorization"] = f"token {token}"
 
         try:
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, params=params)
 
             # Check rate limit headers (defensively -- headers may not be a dict).
             response_headers = getattr(response, "headers", None)

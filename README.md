@@ -69,12 +69,14 @@ avoids the sharp edges:
    ```
    You'll be asked: where your dbt project is, which API framework you use,
    whether your models live in this local project or a different GitHub
-   repo, and then the local path (or the `org/repo` + path within it). It's
-   asked explicitly rather than guessed from the path's shape — a local path
-   like `app/models` is syntactically identical to a GitHub `org/repo`
-   string, so there's no reliable way to infer which one you mean. If you
-   pick GitHub, it checks the path actually exists before writing the
-   config — so a typo surfaces here instead of at `validate` time.
+   repo, and then the local path (or the `org/repo` + path within it, plus
+   an optional branch/tag/commit — blank reads the repo's default branch).
+   Local-vs-GitHub is asked explicitly rather than guessed from the path's
+   shape — a local path like `app/models` is syntactically identical to a
+   GitHub `org/repo` string, so there's no reliable way to infer which one
+   you mean. If you pick GitHub, it checks the path actually exists before
+   writing the config — so a typo surfaces here instead of at `validate`
+   time.
 
    `init` refuses to touch an existing `.retl-validator.yml` or workflow
    file — it won't clobber hand-added `mapping` entries just because you
@@ -138,7 +140,20 @@ contract-validator validate \
   --dbt-project . \
   --fastapi-repo "my-org/my-api" \
   --fastapi-path "app/models.py"
+
+# ...against a dev/staging branch of that repo instead of its default branch
+contract-validator validate \
+  --dbt-project . \
+  --fastapi-repo "my-org/my-api" \
+  --fastapi-path "app/models.py" \
+  --fastapi-ref "dev"
 ```
+
+`--fastapi-ref` accepts a branch, tag, or commit SHA. It's useful for
+validating an in-progress API change (on a `dev` or feature branch) against
+dbt *before* it merges to `main` — catch the break in the PR that's about to
+introduce it, not after. Omit it to read the repo's default branch, same as
+before.
 
 ## 🔍 How extraction works (and why it's accurate)
 
@@ -216,6 +231,10 @@ target:
     type: "github"
     repo: "my-org/my-api"
     path: "app/models.py"
+    # Optional: branch, tag, or commit to read from. Omit for the repo's
+    # default branch. Handy for validating a dev/staging branch instead of
+    # main -- e.g. to catch a break in a PR before it merges.
+    # ref: "dev"
     # ...or local:
     # type: "local"
     # path: "../my-api/app/models.py"
