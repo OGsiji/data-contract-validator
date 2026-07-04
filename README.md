@@ -282,14 +282,19 @@ check `target.*.path` actually exists and will point you at this if the
 lookup 404s with no token set.
 
 **In CI**, the workflow `init` generates for a GitHub target wires up
-`GITHUB_TOKEN: ${{ secrets.API_REPO_TOKEN }}` — a token **you** create,
-*not* the auto-provided `secrets.GITHUB_TOKEN`. That auto-provided token
-only has access to **the repository the workflow is running in**, so if
-your dbt repo and your API repo are different repos, it silently can't read
-the target the first time that target is private — and a PAT works
-identically for a public target too, so there's no reason to default to the
-token that only sometimes works. To finish the setup the generated workflow
-expects:
+`GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` — the token Actions
+auto-provides. That's fine and needs no setup **if your target repo is
+public**. But that token only has access to **the repository the workflow
+is running in**, so if your dbt repo and your API repo are different repos
+and the target is private, it silently can't read it, and validation fails
+on every PR with no clue why.
+
+> ⚠️ **Strong recommendation: if your target repo is private, switch this
+> to a token you create yourself before you rely on this workflow.** The
+> generated workflow carries a loud comment for exactly this — don't wait
+> to discover it the hard way on a PR.
+
+To make that switch:
 
 1. Create a token with read access to the *target* repo — a
    [fine-grained PAT](https://github.com/settings/personal-access-tokens/new)
@@ -297,15 +302,14 @@ expects:
    option; a classic PAT with the `repo` scope also works.
 2. In the repo running the workflow (your dbt repo): **Settings → Secrets
    and variables → Actions → New repository secret**. Name it
-   **`API_REPO_TOKEN`** exactly (that's the name the generated workflow
-   already references) and paste the token as the value.
+   **`API_REPO_TOKEN`** (or similar) and paste the token as the value.
 
    > ⚠️ **GitHub rejects any secret name starting with `GITHUB_`** — it's a
    > reserved prefix. You cannot create a secret literally called
    > `GITHUB_TOKEN`; that's not a naming suggestion, the UI will refuse it.
-   > That's exactly why the workflow's secret is named `API_REPO_TOKEN`
-   > instead, even though the environment variable it feeds is `GITHUB_TOKEN`
-   > — two different things with confusingly similar names:
+   > That's why the secret needs a different name, even though the
+   > environment variable it feeds is `GITHUB_TOKEN` — two different things
+   > with confusingly similar names:
    > ```yaml
    > env:
    >   GITHUB_TOKEN: ${{ secrets.API_REPO_TOKEN }}
@@ -314,6 +318,8 @@ expects:
    > #                            ^^^^^^^^^^^^^^ the *secret's* name --
    > #                            this is what GitHub restricts
    > ```
+3. Replace `secrets.GITHUB_TOKEN` with `secrets.API_REPO_TOKEN` (or
+   whatever you named it) in the workflow's `env:` block.
 
 Skip all of this for a `local` target — `init` omits the whole `env:` block
 since a local target never talks to the GitHub API at all.
@@ -388,15 +394,16 @@ jobs:
       # Optional: `dbt docs generate` here for real warehouse types (Tier 1)
       - run: contract-validator validate --output github
         env:
-          GITHUB_TOKEN: ${{ secrets.API_REPO_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 `GITHUB_TOKEN` here is only needed if `target` is a `github` repo (`init`
-omits the whole `env:` block for a `local` target). `secrets.API_REPO_TOKEN`
-is a token you create yourself, not GitHub's auto-provided
-`secrets.GITHUB_TOKEN` — see
+omits the whole `env:` block for a `local` target). The default above works
+as-is for a **public** target repo. For a **private** one, strongly
+recommended: swap it for a token you create yourself — see
 [Private GitHub repos need `GITHUB_TOKEN`](#private-github-repos-need-github_token)
-above for why, and how to set it up.
+above for why the default silently can't read a private target, and how to
+set up the replacement.
 
 ### Pre-commit
 

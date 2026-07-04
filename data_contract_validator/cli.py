@@ -381,21 +381,25 @@ def _create_github_workflow(
     if target_is_github:
         validate_step = """    - name: Validate contracts
       env:
-        # Defaults to a token YOU create, not the auto-provided
-        # secrets.GITHUB_TOKEN -- that one only has access to THIS
-        # repository, so it silently fails the first time the target repo
-        # above is private. A personal access token works for both public
-        # and private targets, so it's the default rather than a fallback:
+        # secrets.GITHUB_TOKEN is auto-provided by Actions -- works as-is
+        # if the target repo above is public.
+        #
+        # !! IF THE TARGET REPO ABOVE IS PRIVATE, THIS WILL SILENTLY FAIL !!
+        # secrets.GITHUB_TOKEN only has access to THIS repository, never a
+        # different one, regardless of visibility. Strongly recommended fix
+        # for a private target:
         #   1. Create a PAT with read access to the target repo above
         #      (fine-grained: Contents, read-only; classic: `repo` scope).
         #   2. This repo's Settings -> Secrets and variables -> Actions ->
         #      New repository secret -> name it API_REPO_TOKEN, paste the
         #      token as the value.
         #      (Secret names can't start with GITHUB_ -- that prefix is
-        #      reserved -- which is why this isn't just called GITHUB_TOKEN.
+        #      reserved -- which is why it can't just be called GITHUB_TOKEN.
         #      The env var below can be, though: the CLI always reads a
         #      variable named GITHUB_TOKEN regardless of the secret's name.)
-        GITHUB_TOKEN: ${{ secrets.API_REPO_TOKEN }}
+        #   3. Replace the line below with:
+        #        GITHUB_TOKEN: ${{ secrets.API_REPO_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         contract-validator validate \\
           --config .retl-validator.yml \\

@@ -81,7 +81,7 @@ From there it runs at the same trust boundary as the rest of a team's guardrails
 **Finding 4 — CI silently assumed it could read a private target repo**
 - *Symptom:* a generated CI workflow validating against a *different*, private API repo would fail every PR with a 404 indistinguishable from a typo'd path.
 - *Cause:* the workflow wired up `secrets.GITHUB_TOKEN`, but that token only has access to the repo the workflow itself runs in — never a different repo, private or not.
-- *Fix:* the generated workflow now defaults to `secrets.API_REPO_TOKEN`, a token you create yourself and that works identically for public and private targets — removing the silent-failure case rather than just documenting it. It's skipped entirely for a `local` target, which never calls the GitHub API at all. The workflow also now scaffolds (commented, since it needs your warehouse credentials) the `dbt docs generate` step needed to unlock Tier 1 real warehouse types in CI, instead of that only being mentioned in prose docs.
+- *Fix:* the default stays `secrets.GITHUB_TOKEN` — zero setup for the common case of a public target repo — but the generated workflow now carries a hard-to-miss comment recommending a user-created `secrets.API_REPO_TOKEN` for a private target, instead of the risk sitting undocumented. Skipped entirely for a `local` target, which never calls the GitHub API at all. The workflow also now scaffolds (commented, since it needs your warehouse credentials) the `dbt docs generate` step needed to unlock Tier 1 real warehouse types in CI, instead of that only being mentioned in prose docs.
 
 ## 5. Why this matters for teams shipping operational APIs
 

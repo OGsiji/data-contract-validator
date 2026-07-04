@@ -258,12 +258,15 @@ class TestInitOffersPrecommitSetup:
 class TestGeneratedWorkflowGithubToken:
     """The auto-provided secrets.GITHUB_TOKEN only has access to the repo
     the workflow runs in -- it can't read a *different*, private target
-    repo. Rather than defaulting to it and documenting the fix, the
-    generated workflow defaults straight to a user-created PAT secret,
-    which works for both public and private targets, so there's no
-    silent-failure case to walk into in the first place."""
+    repo. It's still the default, since it works as-is for the common case
+    (a public target repo) with zero extra setup -- but the generated
+    workflow carries a hard-to-miss recommendation to switch to a
+    user-created PAT secret for a private target, rather than requiring
+    that setup unconditionally."""
 
-    def test_github_target_defaults_to_api_repo_token_secret(self, tmp_path):
+    def test_github_target_defaults_to_github_token_with_private_repo_warning(
+        self, tmp_path
+    ):
         config = {
             "source": {"dbt": {"project_path": "."}},
             "target": {
@@ -275,11 +278,8 @@ class TestGeneratedWorkflowGithubToken:
             tmp_path / ".github" / "workflows" / "validate-contracts.yml"
         ).read_text()
 
-        assert "GITHUB_TOKEN: ${{ secrets.API_REPO_TOKEN }}" in content
-        # The auto-provided token is only mentioned in the explanatory
-        # comment (as the thing NOT to use) -- it must not appear as an
-        # actual directive anywhere.
-        assert "${{ secrets.GITHUB_TOKEN }}" not in content
+        assert "GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}" in content
+        assert "API_REPO_TOKEN" in content
         assert "private" in content.lower()
         assert "New repository secret" in content
 

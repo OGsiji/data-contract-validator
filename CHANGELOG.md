@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.9] - 2026-07-04
+
+### Changed
+- **Reverted 1.1.7's CI token default back to `secrets.GITHUB_TOKEN`.**
+  Requiring every user to set up a personal-access-token secret — even for
+  the common case of a public target repo — traded a real but avoidable
+  failure mode (1.1.6) for mandatory setup friction that most users don't
+  need. The generated workflow now defaults to the zero-setup
+  `secrets.GITHUB_TOKEN` again, with a hard-to-miss comment strongly
+  recommending a `secrets.API_REPO_TOKEN` replacement specifically when the
+  target repo is private.
+
 ## [1.1.8] - 2026-07-04
 
 ### Added
