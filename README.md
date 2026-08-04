@@ -152,8 +152,25 @@ contract-validator validate \
 `--fastapi-ref` accepts a branch, tag, or commit SHA. It's useful for
 validating an in-progress API change (on a `dev` or feature branch) against
 dbt *before* it merges to `main` — catch the break in the PR that's about to
-introduce it, not after. Omit it to read the repo's default branch, same as
-before.
+introduce it, not after.
+
+### Branch auto-matching
+
+You usually don't need to set a ref at all. When none is given, the branch
+is matched automatically so a dbt change headed for `dev` checks against the
+API repo's `dev` branch — keeping each environment validated against its own
+counterpart with no per-branch config:
+
+| Where it's running | Branch used |
+|---|---|
+| A GitHub Actions **pull request** | the branch the PR *targets* (`GITHUB_BASE_REF`) — the environment the change is heading toward, not the feature branch it's coming from |
+| A GitHub Actions **push** | the pushed branch (`GITHUB_REF_NAME`) |
+| **Locally** | your dbt project's current git branch |
+
+If that branch doesn't exist on the target repo — common when the API repo
+doesn't mirror your dbt repo's branch names — it silently falls back to the
+target's default branch, so this never turns into a spurious failure. An
+explicit `--fastapi-ref` or `target.*.ref` always overrides auto-matching.
 
 ## 🔍 How extraction works (and why it's accurate)
 
@@ -231,9 +248,10 @@ target:
     type: "github"
     repo: "my-org/my-api"
     path: "app/models.py"
-    # Optional: branch, tag, or commit to read from. Omit for the repo's
-    # default branch. Handy for validating a dev/staging branch instead of
-    # main -- e.g. to catch a break in a PR before it merges.
+    # Optional: pin a branch, tag, or commit to read from. Omit this and the
+    # branch is auto-matched (PR target branch in CI, current branch locally),
+    # falling back to the repo's default branch -- see "Branch auto-matching".
+    # Set it only to force one specific ref regardless of context.
     # ref: "dev"
     # ...or local:
     # type: "local"

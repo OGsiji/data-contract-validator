@@ -41,6 +41,83 @@ def _github_path_exists(
     return None
 
 
+def _detect_branch_hint(dbt_path: str) -> Optional[str]:
+    """Best-effort guess at "the branch this run is about", for defaulting a
+    GitHub target's ref when none was explicitly given.
+
+    Checked in order:
+      1. GITHUB_BASE_REF -- in a GitHub Actions PR, this is the branch the
+         PR targets (e.g. "dev"), which is the environment this dbt change
+         is heading toward -- not GITHUB_HEAD_REF, which is where it's
+         coming from.
+      2. GITHUB_REF_NAME -- a plain push (e.g. a merge landing on "dev").
+      3. The dbt project's current local git branch, for local runs.
+
+    Returns None if nothing is detectable; callers should treat that as "no
+    hint, use the target's default branch" -- same as omitting --fastapi-ref
+    entirely.
+    """
+    base_ref = os.environ.get("GITHUB_BASE_REF")
+    if base_ref:
+        return base_ref
+
+    ref_name = os.environ.get("GITHUB_REF_NAME")
+    if ref_name:
+        return ref_name
+
+    try:
+        # symbolic-ref rather than `rev-parse --abbrev-ref HEAD`: the latter
+        # fatals on a repo with no commits yet, and returns the literal
+        # "HEAD" (not a branch) in a detached checkout. symbolic-ref handles
+        # the first correctly and exits non-zero on the second.
+        result = subprocess.run(
+            ["git", "-C", str(dbt_path), "symbolic-ref", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            branch = result.stdout.strip()
+            if branch:
+                return branch
+    except Exception:
+        pass
+
+    return None
+
+
+def _resolve_github_ref(
+    explicit_ref: Optional[str],
+    repo: str,
+    path: str,
+    token: Optional[str],
+    dbt_path: str,
+) -> Optional[str]:
+    """Resolve the ref to use for a GitHub target.
+
+    An explicit ref (CLI flag or config) always wins outright. Otherwise,
+    try matching the current/PR branch (see _detect_branch_hint) on the
+    target repo, falling back to the target's default branch (None) if that
+    branch doesn't exist there. Never raises -- a failed auto-detect just
+    means "no ref hint", identical to today's behavior.
+    """
+    if explicit_ref:
+        return explicit_ref
+
+    hint = _detect_branch_hint(dbt_path)
+    if not hint:
+        return None
+
+    if _github_path_exists(repo, path, token, hint):
+        click.echo(f"   🔀 Auto-matched branch '{hint}' on target repo")
+        return hint
+
+    click.echo(
+        f"   🔀 Branch '{hint}' not found on target repo — using its default branch"
+    )
+    return None
+
+
 def _github_auth_hint(exists: Optional[bool], token: Optional[str]) -> Optional[str]:
     """Hint to print when a path lookup came back missing and no token was used.
 
@@ -577,10 +654,12 @@ def _test_setup(config_file: Path) -> bool:
             elif target_info.get("type") == "github":
                 repo = target_info.get("repo")
                 path = target_info.get("path")
-                ref = target_info.get("ref")
+                token = os.environ.get("GITHUB_TOKEN")
+                ref = _resolve_github_ref(
+                    target_info.get("ref"), repo, path, token, str(dbt_path)
+                )
                 click.echo(f"      🐙 GitHub repo: {repo}/{path}" + (f"@{ref}" if ref else ""))
 
-                token = os.environ.get("GITHUB_TOKEN")
                 exists = _github_path_exists(repo, path, token, ref)
                 if exists is True:
                     click.echo(f"      ✅ Path confirmed: {path}")
@@ -868,7 +947,10 @@ def _run_validation(
         elif fastapi_repo:
             # Use GitHub repository
             github_token = os.environ.get("GITHUB_TOKEN")
-            ref_suffix = f"@{fastapi_ref}" if fastapi_ref else ""
+            resolved_ref = _resolve_github_ref(
+                fastapi_ref, fastapi_repo, fastapi_path, github_token, dbt_path
+            )
+            ref_suffix = f"@{resolved_ref}" if resolved_ref else ""
 
             # Check if fastapi_path ends with .py (file) or not (directory)
             if fastapi_path.endswith(".py"):
@@ -881,7 +963,7 @@ def _run_validation(
                 )
 
             fastapi_extractor = FastAPIExtractor.from_github_repo(
-                repo=fastapi_repo, path=fastapi_path, token=github_token, ref=fastapi_ref
+                repo=fastapi_repo, path=fastapi_path, token=github_token, ref=resolved_ref
             )
         else:
             # Get from config
@@ -902,13 +984,19 @@ def _run_validation(
             elif target_config.get("type") == "github":
                 github_token = os.environ.get("GITHUB_TOKEN")
                 # CLI --fastapi-ref overrides the config's target.*.ref, same
-                # precedence as the other --fastapi-* overrides.
-                ref = fastapi_ref or target_config.get("ref")
+                # precedence as the other --fastapi-* overrides. Either one
+                # explicit beats branch auto-detection.
+                explicit_ref = fastapi_ref or target_config.get("ref")
+                repo = target_config.get("repo")
+                path = target_config.get("path", "app/models")
+                resolved_ref = _resolve_github_ref(
+                    explicit_ref, repo, path, github_token, dbt_path
+                )
                 fastapi_extractor = FastAPIExtractor.from_github_repo(
-                    repo=target_config.get("repo"),
-                    path=target_config.get("path", "app/models"),
+                    repo=repo,
+                    path=path,
                     token=github_token,
-                    ref=ref,
+                    ref=resolved_ref,
                 )
             else:
                 click.echo("❌ No valid FastAPI configuration found")

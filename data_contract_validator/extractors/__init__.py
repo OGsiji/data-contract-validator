@@ -6,9 +6,11 @@ Schema extractors for different frameworks.
 from .base import BaseExtractor
 from .dbt import DBTExtractor
 from .fastapi import FastAPIExtractor
+from .hubspot import HubSpotExtractor
 
 __all__ = [
     "BaseExtractor",
     "DBTExtractor",
     "FastAPIExtractor",
+    "HubSpotExtractor",
 ]

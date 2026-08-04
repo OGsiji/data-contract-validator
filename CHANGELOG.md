@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-04
+
+### Added
+- **Branch auto-matching for GitHub targets.** When no ref is explicitly
+  set, the branch is now matched automatically: in a GitHub Actions pull
+  request it uses the branch the PR *targets* (`GITHUB_BASE_REF` — the
+  environment the change is heading toward, not the feature branch it comes
+  from), on a push it uses `GITHUB_REF_NAME`, and locally it uses the dbt
+  project's current git branch. If that branch doesn't exist on the target
+  repo it falls back silently to the target's default branch, so this can
+  never turn into a spurious failure. An explicit `--fastapi-ref` or
+  `target.*.ref` still overrides it. Previously a `dev`-bound dbt change
+  would always check against the API repo's default branch unless someone
+  hand-wired a ref.
+- **`HubSpotExtractor`** — reads live property metadata for a CRM object via
+  HubSpot's Properties API, making a reverse-ETL *destination* validatable
+  the same way a FastAPI repo is. Unlike a codebase target, the schema only
+  exists as whatever an admin configured in the HubSpot UI — no code review,
+  no git history. Calculated, hidden, and read-only properties are filtered
+  out (a sync could never populate them, so flagging them would be a
+  permanent unfixable issue), and an explicit `fields` allowlist scopes the
+  check to what your sync actually writes, since a stock object carries
+  100–400+ properties.
+- **`mapping.critical_columns`** — escalates a missing column to CRITICAL
+  even when the target extractor reported it as not required. Needed because
+  some targets have no schema-level "required" concept at all (a HubSpot
+  property has no required flag), which would otherwise make every missing
+  field warning-only. Works for any target extractor, not just HubSpot.
+- **"Did you mean" suggestions on missing tables/columns.** A genuine rename
+  (`lifetime_value` → `ltv`) isn't a mechanical casing/plural transform, so
+  the matcher can't bridge it — the suggested fix now names the closest
+  actual source column and the exact `mapping` entry to add. Suggestion-only;
+  it never affects matching itself, so a wrong guess costs a slightly-off
+  hint, never a wrong validation result.
+
 ## [1.1.9] - 2026-07-04
 
 ### Changed

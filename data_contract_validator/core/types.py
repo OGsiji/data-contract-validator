@@ -350,3 +350,25 @@ def find_match(name: str, index: Dict[str, Any]) -> Any:
         if variant in index:
             return index[variant]
     return None
+
+
+def closest_match(name: str, candidates: List[str], cutoff: float = 0.6) -> Optional[str]:
+    """Return the candidate name most similar to ``name``, or ``None``.
+
+    This is purely a "did you mean" suggestion for error messages -- it never
+    feeds into actual matching logic (that stays exact/mechanical via
+    :func:`find_match`), so a wrong guess here only costs a slightly-off hint,
+    never a silently-wrong validation result. Useful for catching genuine
+    renames (``lifetime_value`` -> ``ltv``) that ``name_variants`` can't bridge
+    because they aren't a mechanical casing/plural transform.
+    """
+    import difflib
+
+    norm_candidates = {normalize_name(c): c for c in candidates if c}
+    if not norm_candidates:
+        return None
+
+    matches = difflib.get_close_matches(
+        normalize_name(name), list(norm_candidates.keys()), n=1, cutoff=cutoff
+    )
+    return norm_candidates[matches[0]] if matches else None

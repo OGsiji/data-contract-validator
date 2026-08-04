@@ -12,6 +12,8 @@ from data_contract_validator.cli import (
     _github_path_exists,
     _github_auth_hint,
     _create_github_workflow,
+    _detect_branch_hint,
+    _resolve_github_ref,
 )
 
 
@@ -350,3 +352,83 @@ class TestGeneratedWorkflowDbtTier1Scaffold:
                 tmp_path / ".github" / "workflows" / "validate-contracts.yml"
             ).read_text()
             assert "dbt docs generate" in content
+
+
+class TestDetectBranchHint:
+    """Auto-detecting "the branch this run is about", so a dbt change headed
+    for `dev` checks against the API repo's `dev` branch without anyone
+    hand-wiring a ref."""
+
+    def test_prefers_pr_base_ref_over_everything(self, tmp_path, monkeypatch):
+        # In a PR, the branch being merged INTO is the environment this
+        # change is heading toward -- not the feature branch it's on.
+        monkeypatch.setenv("GITHUB_BASE_REF", "dev")
+        monkeypatch.setenv("GITHUB_REF_NAME", "feature/my-change")
+        assert _detect_branch_hint(str(tmp_path)) == "dev"
+
+    def test_falls_back_to_ref_name_for_plain_push(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("GITHUB_BASE_REF", raising=False)
+        monkeypatch.setenv("GITHUB_REF_NAME", "dev")
+        assert _detect_branch_hint(str(tmp_path)) == "dev"
+
+    def test_uses_local_git_branch_outside_ci(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("GITHUB_BASE_REF", raising=False)
+        monkeypatch.delenv("GITHUB_REF_NAME", raising=False)
+
+        import subprocess
+
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "checkout", "-q", "-b", "dev"], check=True
+        )
+
+        assert _detect_branch_hint(str(tmp_path)) == "dev"
+
+    def test_returns_none_when_nothing_detectable(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("GITHUB_BASE_REF", raising=False)
+        monkeypatch.delenv("GITHUB_REF_NAME", raising=False)
+        # tmp_path is not a git repo -> no branch to detect.
+        assert _detect_branch_hint(str(tmp_path)) is None
+
+
+class TestResolveGithubRef:
+    """An explicit ref always wins; otherwise match the branch on the target
+    repo, and fall back to its default branch rather than erroring."""
+
+    def test_explicit_ref_wins_without_any_lookup(self, tmp_path):
+        with patch("data_contract_validator.cli._github_path_exists") as mock_exists:
+            resolved = _resolve_github_ref(
+                "v2.0", "org/api", "app/models", None, str(tmp_path)
+            )
+        assert resolved == "v2.0"
+        mock_exists.assert_not_called()
+
+    @patch("data_contract_validator.cli._github_path_exists", return_value=True)
+    def test_matches_branch_on_target_when_it_exists(
+        self, mock_exists, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GITHUB_BASE_REF", "dev")
+        resolved = _resolve_github_ref(
+            None, "org/api", "app/models", None, str(tmp_path)
+        )
+        assert resolved == "dev"
+
+    @patch("data_contract_validator.cli._github_path_exists", return_value=False)
+    def test_falls_back_to_default_branch_when_absent_on_target(
+        self, mock_exists, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GITHUB_BASE_REF", "some-branch-only-in-dbt-repo")
+        resolved = _resolve_github_ref(
+            None, "org/api", "app/models", None, str(tmp_path)
+        )
+        assert resolved is None
+
+    def test_no_hint_means_no_ref(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("GITHUB_BASE_REF", raising=False)
+        monkeypatch.delenv("GITHUB_REF_NAME", raising=False)
+        with patch("data_contract_validator.cli._github_path_exists") as mock_exists:
+            resolved = _resolve_github_ref(
+                None, "org/api", "app/models", None, str(tmp_path)
+            )
+        assert resolved is None
+        mock_exists.assert_not_called()

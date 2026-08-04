@@ -6,6 +6,7 @@ from typing import Dict, List, Optional, Any
 from .models import ValidationResult, ValidationIssue, IssueSeverity, Schema
 from .types import (
     CanonicalType,
+    closest_match,
     find_match,
     normalize_name,
     normalize_sql_type,
@@ -38,6 +39,7 @@ class ContractValidator:
                       "tables":  {"<target_table>": "<source_table>"},
                       "columns": {"<target_table>": {"<target_col>": "<source_col>"}},
                       "exclude": ["<target_table>", ...],
+                      "critical_columns": {"<target_table>": ["<target_col>", ...]},
                     }
 
                 Keys are matched case/style-insensitively (userId == user_id).
@@ -47,6 +49,18 @@ class ContractValidator:
                 streaming pipeline instead of dbt) -- that's business
                 knowledge no extractor can infer from the code, so it must
                 be stated explicitly rather than guessed.
+
+                ``critical_columns`` escalates a missing column to CRITICAL
+                (fails the build) even when the target extractor reported it
+                as not required. This exists for target schemas where
+                "required" isn't a meaningful concept at all -- e.g. a
+                HubSpot/Salesforce property has no schema-level required
+                flag, so every column from those extractors defaults to a
+                WARNING-only "expects", regardless of which target extractor
+                produced it. Stating "this field is actually load-bearing for
+                the sync" is business knowledge, the same way ``exclude`` is
+                for the opposite case -- it isn't specific to any one
+                extractor and works for any future target the same way.
         """
         self.source_extractor = source_extractor
         self.target_extractor = target_extractor
@@ -67,6 +81,11 @@ class ContractValidator:
         # normalized set of target tables to skip entirely
         self.excluded_tables: set = {
             normalize_name(t) for t in (mapping.get("exclude") or [])
+        }
+        # target table (normalized) -> {target col (normalized), ...} forced critical
+        self.critical_columns: Dict[str, set] = {
+            normalize_name(table): {normalize_name(c) for c in cols}
+            for table, cols in (mapping.get("critical_columns") or {}).items()
         }
 
     def validate(self) -> ValidationResult:
@@ -134,6 +153,15 @@ class ContractValidator:
         source_schema = find_match(mapped_source or table_name, source_by_norm)
         if not source_schema:
             hint = f" (mapped to source '{mapped_source}')" if mapped_source else ""
+            guess = closest_match(
+                table_name, [s.name for s in source_by_norm.values()]
+            )
+            guess_hint = (
+                f"Did you mean source table '{guess}'? If so, add a "
+                f"'mapping.tables' entry: {table_name}: {guess}. Otherwise, create "
+                if guess
+                else "Create "
+            )
             self.issues.append(
                 ValidationIssue(
                     severity=IssueSeverity.CRITICAL,
@@ -145,7 +173,7 @@ class ContractValidator:
                     ),
                     category="Missing Table",
                     suggested_fix=(
-                        f"Create a source model that outputs table "
+                        f"{guess_hint}a source model that outputs table "
                         f"'{mapped_source or table_name}', or add a 'mapping.tables' "
                         f"entry pointing '{table_name}' at the right source model"
                     ),
@@ -164,6 +192,9 @@ class ContractValidator:
 
         # Per-table explicit column overrides: target col -> source col.
         col_overrides = self.column_map.get(target_norm, {})
+        # Per-table columns forced CRITICAL regardless of the extractor's
+        # own "required" flag (see mapping.critical_columns docs above).
+        forced_critical = self.critical_columns.get(target_norm, set())
 
         # If we couldn't fully see the source columns (e.g. SELECT *), a missing
         # column is unprovable -- never hard-fail on it.
@@ -178,7 +209,7 @@ class ContractValidator:
             source_col = find_match(override or col_info["name"], source_columns)
 
             if source_col is None:
-                is_required = col_info.get("required", True)
+                is_required = col_info.get("required", True) or col_norm in forced_critical
                 if is_required and source_complete:
                     severity = IssueSeverity.CRITICAL
                 else:
@@ -190,6 +221,21 @@ class ContractValidator:
                         " (source columns could not be fully resolved, e.g. "
                         "SELECT * — verify manually)"
                     )
+
+                # A genuine rename (e.g. lifetime_value -> ltv) isn't a
+                # mechanical casing/plural transform, so find_match() can't
+                # bridge it -- suggest the closest actual source column name
+                # instead of only reporting "missing".
+                guess = closest_match(
+                    col_info["name"], [c["name"] for c in source_columns.values()]
+                )
+                guess_hint = (
+                    f"Did you mean source column '{guess}'? If so, add a "
+                    f"'mapping.columns.{table_name}' entry: "
+                    f"{col_info.get('name')}: {guess}. Otherwise, add "
+                    if guess
+                    else "Add "
+                )
 
                 self.issues.append(
                     ValidationIssue(
@@ -203,8 +249,8 @@ class ContractValidator:
                         ),
                         category="Missing Column",
                         suggested_fix=(
-                            f"Add column '{col_info.get('name')}' to source model "
-                            f"for table '{table_name}'"
+                            f"{guess_hint}column '{col_info.get('name')}' to source "
+                            f"model for table '{table_name}'"
                         ),
                     )
                 )

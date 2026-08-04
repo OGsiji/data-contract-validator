@@ -394,3 +394,203 @@ class TestExplicitMapping:
 
         assert result.success is True
         assert len(result.issues) == 0
+
+    def test_critical_columns_escalates_a_non_required_missing_column(self):
+        """Targets like HubSpot/Salesforce properties have no schema-level
+        'required' concept, so every missing column from them defaults to a
+        WARNING. mapping.critical_columns lets a human state that a specific
+        field is actually load-bearing, without needing the target extractor
+        itself to know anything about that."""
+        source_extractor, target_extractor = self._extractors(
+            {
+                "contacts": Schema(
+                    name="contacts",
+                    columns=[{"name": "firstname", "type": "str", "required": True}],
+                    source="dbt_catalog",
+                    metadata={"confidence": "high", "complete": True},
+                )
+            },
+            {
+                "contacts": Schema(
+                    name="contacts",
+                    # required=False mirrors what HubSpotExtractor always emits.
+                    columns=[{"name": "email", "type": "string", "required": False}],
+                    source="hubspot:contacts",
+                )
+            },
+        )
+
+        # Without the override: HubSpot-style non-required column -> warning only.
+        no_override = ContractValidator(source_extractor, target_extractor).validate()
+        assert no_override.success is True
+        assert len(no_override.warnings) == 1
+        assert len(no_override.critical_issues) == 0
+
+        # With the override: the same missing column now fails the build.
+        mapping = {"critical_columns": {"contacts": ["email"]}}
+        escalated = ContractValidator(
+            source_extractor, target_extractor, mapping=mapping
+        ).validate()
+        assert escalated.success is False
+        assert len(escalated.critical_issues) == 1
+        assert escalated.critical_issues[0].column == "email"
+
+    def test_critical_columns_is_normalized_and_scoped_per_table(self):
+        """Casing/style-insensitive like the other mapping keys, and must not
+        leak into escalating a same-named column on a different table."""
+        source_extractor, target_extractor = self._extractors(
+            {
+                "contacts": Schema(
+                    name="contacts",
+                    columns=[{"name": "firstname", "type": "str", "required": True}],
+                    source="dbt_catalog",
+                    metadata={"confidence": "high", "complete": True},
+                ),
+                "companies": Schema(
+                    name="companies",
+                    columns=[{"name": "name", "type": "str", "required": True}],
+                    source="dbt_catalog",
+                    metadata={"confidence": "high", "complete": True},
+                ),
+            },
+            {
+                "contacts": Schema(
+                    name="contacts",
+                    columns=[{"name": "email", "type": "string", "required": False}],
+                    source="hubspot:contacts",
+                ),
+                "companies": Schema(
+                    name="companies",
+                    columns=[{"name": "email", "type": "string", "required": False}],
+                    source="hubspot:companies",
+                ),
+            },
+        )
+
+        mapping = {"critical_columns": {"Contacts": ["Email"]}}
+        result = ContractValidator(
+            source_extractor, target_extractor, mapping=mapping
+        ).validate()
+
+        critical_tables = {i.table for i in result.critical_issues}
+        warning_tables = {i.table for i in result.warnings}
+        assert critical_tables == {"contacts"}
+        assert warning_tables == {"companies"}
+
+
+class TestDidYouMeanSuggestions:
+    """A genuine rename (not a mechanical casing/plural transform) can't be
+    bridged by find_match(), so it must still be reported -- but the fix
+    should suggest the closest actual source name instead of leaving the
+    user to guess."""
+
+    def _extractors(self, source_schemas, target_schemas):
+        source_extractor = Mock()
+        target_extractor = Mock()
+        source_extractor.extract_schemas.return_value = source_schemas
+        target_extractor.extract_schemas.return_value = target_schemas
+        return source_extractor, target_extractor
+
+    def test_renamed_column_suggests_closest_source_column(self):
+        """A typo/near-rename ('customer_emial') isn't a plural/singular or
+        casing variant of 'customer_email', so find_match() can't bridge it
+        -- but it's close enough for a fuzzy suggestion. (Note: a pure
+        abbreviation like 'ltv' for 'lifetime_value' is too dissimilar by
+        edit distance for this heuristic to catch -- that case still needs an
+        explicit mapping.columns entry with no assistance.)"""
+        source_extractor, target_extractor = self._extractors(
+            {
+                "customers": Schema(
+                    name="customers",
+                    columns=[
+                        {
+                            "name": "customer_email",
+                            "type": "varchar",
+                            "required": True,
+                        }
+                    ],
+                    source="dbt_catalog",
+                    metadata={"confidence": "high", "complete": True},
+                )
+            },
+            {
+                "customers": Schema(
+                    name="customers",
+                    columns=[
+                        {"name": "customer_emial", "type": "str", "required": True}
+                    ],
+                    source="test",
+                )
+            },
+        )
+
+        result = ContractValidator(source_extractor, target_extractor).validate()
+
+        assert result.success is False
+        issue = result.critical_issues[0]
+        assert issue.category == "Missing Column"
+        assert "customer_email" in issue.suggested_fix
+        assert "mapping.columns" in issue.suggested_fix
+
+    def test_dissimilar_column_name_gets_no_false_suggestion(self):
+        """Two unrelated names (an intentional mapping case, not a typo/rename)
+        shouldn't produce a misleading guess."""
+        source_extractor, target_extractor = self._extractors(
+            {
+                "users": Schema(
+                    name="users",
+                    columns=[
+                        {
+                            "name": "customer_identifier",
+                            "type": "varchar",
+                            "required": True,
+                        }
+                    ],
+                    source="dbt_catalog",
+                    metadata={"confidence": "high", "complete": True},
+                )
+            },
+            {
+                "users": Schema(
+                    name="users",
+                    columns=[{"name": "user_id", "type": "str", "required": True}],
+                    source="test",
+                )
+            },
+        )
+
+        result = ContractValidator(source_extractor, target_extractor).validate()
+
+        assert result.success is False
+        issue = result.critical_issues[0]
+        assert "Did you mean" not in issue.suggested_fix
+
+    def test_missing_table_suggests_closest_source_table(self):
+        """A typo ('subscriptons') isn't a plural/singular or casing variant
+        of 'subscriptions', so find_match() can't bridge it -- but it's close
+        enough for a fuzzy suggestion."""
+        source_extractor, target_extractor = self._extractors(
+            {
+                "subscriptions": Schema(
+                    name="subscriptions",
+                    columns=[{"name": "id", "type": "varchar", "required": True}],
+                    source="dbt_catalog",
+                    metadata={"confidence": "high", "complete": True},
+                )
+            },
+            {
+                "subscriptons": Schema(
+                    name="subscriptons",
+                    columns=[{"name": "id", "type": "str", "required": True}],
+                    source="test",
+                )
+            },
+        )
+
+        result = ContractValidator(source_extractor, target_extractor).validate()
+
+        assert result.success is False
+        issue = result.critical_issues[0]
+        assert issue.category == "Missing Table"
+        assert "subscriptions" in issue.suggested_fix
+        assert "mapping.tables" in issue.suggested_fix
