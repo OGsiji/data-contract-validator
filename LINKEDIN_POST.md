@@ -1,138 +1,126 @@
 # LinkedIn post — data-contract-validator v1.3.0
 
----
+## ⭐ Primary (short)
 
-A year ago I stood up at the dbt Meetup in Lagos and talked about a problem
-I kept running into: nothing checks the seam between your dbt models and the
-things that consume them.
+Your dbt model feeds a HubSpot sync. Someone in Sales renames a property in
+the HubSpot settings page.
 
-I finally went back and did the work. **data-contract-validator v1.3.0 is out.**
+Nothing breaks loudly. The sync just quietly starts writing into a field that
+no longer means what it used to — and nobody finds out until a campaign goes
+out against bad data.
 
----
+That's the part of reverse ETL nobody guards. Your dbt tests don't know
+HubSpot exists. HubSpot has no code review, no git history, no PR for
+"renamed a field." The contract between them lives entirely in someone's
+memory.
 
-**The problem, in one sentence:**
+At the dbt Meetup Lagos I talked about why data contracts matter. **This is
+the shipped version of that argument.**
 
-A data engineer renames a column, `dbt run` goes green, and three
-repositories away a FastAPI endpoint starts throwing 500s at 2am.
+**data-contract-validator v1.3.0** now validates CRM destinations, not just
+APIs:
 
-The dbt tests don't know the API exists. The API tests mock the database, so
-they don't know the column is gone. The first person who finds out is
-whoever is on call.
-
-It's the same thing a type checker solves inside one codebase — except these
-two sides never compile against each other.
-
----
-
-**What the tool does:**
-
-It reads what your dbt models actually produce, reads what your Pydantic /
-SQLModel classes actually promise, and fails the PR when the data side can no
-longer satisfy the consumer side.
+```yaml
+target:
+  hubspot:
+    type: "hubspot"
+    object_type: "contacts"
+    fields: [email, lifecyclestage, lifetime_value]
+```
 
 ```bash
 pip install data-contract-validator
-contract-validator init --interactive
 contract-validator validate
 ```
 
-No schema to hand-write. Nothing to install into your warehouse. It parses
-Python with `ast` (nothing is imported or executed) and SQL with a real
-parser, not regex.
+It reads what your dbt models actually produce, reads what the destination
+actually expects, and fails the PR when they've drifted apart. Same check for
+FastAPI/Pydantic services. Now also for the CRM at the end of your reverse
+ETL pipeline.
 
----
+Also new: branch auto-matching (a dbt PR into `dev` checks against the API
+repo's `dev` branch, zero config), and a pile of false-positive fixes — every
+one of them found by pointing the tool at real schemas and watching it be
+wrong.
 
-**What's new in this release:**
+If you run dbt next to an API or a CRM sync: point it at your project and
+tell me where it breaks. That feedback is worth more than a star.
 
-🔗 **Reverse ETL is now covered, not just APIs.** dbt models don't only feed
-services — they get synced into HubSpot, and that destination has a schema
-too. Except it lives in an admin UI that anyone can edit, with no code review
-and no git history. A property renamed in a settings page breaks a sync
-exactly like a dropped dbt column does, and nothing in your repo would show
-it. Now it's validated the same way.
-
-🔀 **Branch auto-matching.** A dbt PR into `dev` now checks against the API
-repo's `dev` branch automatically. Each environment validates against its own
-counterpart — zero config.
-
-🎯 **Fewer false positives, which is the whole game.** A check that cries
-wolf gets muted, and a muted check is worse than none. Real fixes this cycle:
-`bigint` columns no longer false-flag against Python `int` (Python ints are
-arbitrary-precision — there's no truncation risk). `SQLModel(table=True)`
-classes are no longer silently skipped, which was quietly exempting real,
-dbt-backed tables from checking entirely.
-
-💡 **"Did you mean?" on renames.** `lifetime_value` → `ltv` isn't a
-mechanical transform, so name-matching can't bridge it. The error now names
-the closest actual column and the exact config line to add.
-
----
-
-**Why I think this matters:**
-
-Most teams already gate deploys on unit tests, type checks, and linting.
-Almost nobody gates them on the one dependency that's invisible from both
-sides of the seam: whether the warehouse still produces what the consumer
-promised.
-
-That gap gets discovered in production, by whoever is paged first.
-
----
-
-**Every fix in this release came from pointing the tool at real dbt models
-and real SQLModel classes and finding it was wrong.** Not hypotheticals —
-actual false passes and false alarms, found and fixed.
-
-Which is exactly why I'd love more eyes on it. If you run dbt alongside an
-API or a reverse-ETL sync, point it at your project and tell me where it's
-wrong. That feedback is worth more than a star.
-
-Especially interested in contributors for:
-→ Salesforce (the obvious next destination)
-→ Django / SQLAlchemy targets
-→ More warehouse type edge cases
-
-MIT licensed. 97 tests. Issues and PRs genuinely welcome.
+Salesforce is the obvious next destination. PRs genuinely welcome.
 
 🔗 github.com/OGsiji/data-contract-validator
-📦 pip install data-contract-validator
+📦 `pip install data-contract-validator`
 
-#dbt #DataEngineering #Analytics #DataContracts #Python #FastAPI #OpenSource #ReverseETL #DataQuality
+#dbt #DataEngineering #DataContracts #ReverseETL #Analytics #Python #OpenSource
 
 ---
 
-## Shorter variant (if you want something punchier)
+## Alternate (slightly longer — if you want the origin story in)
 
-A year ago I talked about this at the dbt Meetup in Lagos. I finally shipped it.
+A year ago I posted about a problem that kept biting me: nothing checks the
+seam between your dbt models and the things that consume them.
 
-**data-contract-validator v1.3.0**
+At the dbt Meetup Lagos I made the case for data contracts. This is the
+shipped version of that argument — and the newest part is the one I think is
+most under-guarded.
 
-The problem: a data engineer renames a column, `dbt run` goes green, and
-three repos away a FastAPI endpoint starts 500-ing at 2am. dbt's tests don't
-know the API exists. The API's tests mock the DB. Nobody finds out until
-production does.
+**Reverse ETL destinations have schemas too.**
 
-The tool reads what your dbt models actually produce, reads what your
-Pydantic/SQLModel classes actually promise, and fails the PR when they've
-drifted apart.
+Your dbt model syncs into HubSpot. Someone renames a property in a settings
+page. No PR, no review, no git history — and the sync quietly starts writing
+into a field that no longer means what it did yesterday.
 
-New in this release:
-🔗 HubSpot — because reverse ETL destinations have schemas too, and theirs
-live in an admin UI with no code review and no git history
-🔀 Branch auto-matching — a dbt PR into `dev` checks against the API repo's
-`dev` branch, no config
-🎯 A pile of false-positive fixes, each one found by pointing it at real
-schemas and watching it be wrong
+Your dbt tests don't know HubSpot exists. HubSpot doesn't know your dbt
+project exists. The contract between them lives in someone's memory.
+
+**data-contract-validator v1.3.0** now covers it:
 
 ```bash
 pip install data-contract-validator
 contract-validator init --interactive
 ```
 
-If you run dbt next to an API or a CRM sync: point it at your project and
-tell me where it breaks. MIT, 97 tests, PRs welcome — Salesforce and Django
-targets are wide open if anyone wants them.
+It reads what dbt actually produces, reads what the destination actually
+expects — a FastAPI/Pydantic service, or now a HubSpot object — and fails the
+PR when the data side can no longer satisfy the consumer side.
+
+A few things I care about in this release:
+
+🔗 **CRM targets.** Scoped to the properties your sync actually writes,
+because a stock HubSpot object has 100–400+ of them and comparing against all
+of them is just noise.
+
+🔀 **Branch auto-matching.** A dbt PR into `dev` validates against the API
+repo's `dev` branch automatically. Each environment checks against its own
+counterpart.
+
+🎯 **Fewer false positives — which is the whole game.** A check that cries
+wolf gets muted, and a muted check is worse than none. Real fixes this cycle:
+`bigint` columns no longer false-flag against Python `int`, and
+`SQLModel(table=True)` classes are no longer silently skipped — that one was
+quietly exempting real dbt-backed tables from checking entirely.
+
+Every fix came from pointing it at real dbt models and finding it was wrong.
+Not hypotheticals.
+
+Which is exactly why I want more eyes on it. Point it at your project and
+tell me where it breaks.
+
+Open for contributors: **Salesforce**, Django/SQLAlchemy targets, warehouse
+type edge cases. MIT licensed, 97 tests.
 
 🔗 github.com/OGsiji/data-contract-validator
 
-#dbt #DataEngineering #DataContracts #Python #OpenSource
+#dbt #DataEngineering #DataContracts #ReverseETL #Python #OpenSource
+
+---
+
+## Notes before posting
+
+- Tag **David Adejumo** and **dbt Labs Meetup Lagos** if you want the
+  organizer/community reach — his recap post is recent enough that this reads
+  as a natural follow-up.
+- Worth tagging co-speakers **Adedamola Onabanjo** and **Israel Odeajo** only
+  if you're framing it as a community thread rather than a project launch.
+- The repo has **no CONTRIBUTING.md** — if this post drives contributors,
+  that's the first thing they'll look for.
