@@ -4,6 +4,7 @@ Tests for CLI helper functions.
 
 from unittest.mock import patch, Mock
 
+import pytest
 import yaml
 from click.testing import CliRunner
 
@@ -14,7 +15,9 @@ from data_contract_validator.cli import (
     _create_github_workflow,
     _detect_branch_hint,
     _resolve_github_ref,
+    _build_target_extractor,
 )
+from data_contract_validator.extractors.hubspot import HubSpotExtractor
 
 
 class TestGithubPathExists:
@@ -143,7 +146,7 @@ class TestInteractiveSetupAsksLocalOrGithubExplicitly:
         result = CliRunner().invoke(
             cli,
             ["init", "--interactive", "--output-dir", str(tmp_path)],
-            input="\ny\n\n\n\n\nn\n",
+            input="\ny\n\n\n\n\n\nn\n",
         )
 
         assert result.exit_code == 0, result.output
@@ -163,7 +166,7 @@ class TestInteractiveSetupAsksLocalOrGithubExplicitly:
         result = CliRunner().invoke(
             cli,
             ["init", "--interactive", "--output-dir", str(tmp_path)],
-            input="\ny\n\ngithub\nmy-org/my-api\n\n\n\nn\n",
+            input="\ny\n\n\ngithub\nmy-org/my-api\n\n\n\nn\n",
         )
 
         assert result.exit_code == 0, result.output
@@ -183,7 +186,7 @@ class TestInteractiveSetupAsksLocalOrGithubExplicitly:
         result = CliRunner().invoke(
             cli,
             ["init", "--interactive", "--output-dir", str(tmp_path)],
-            input="\ny\n\ngithub\nmy-org/my-api\n\ndev\n\nn\n",
+            input="\ny\n\n\ngithub\nmy-org/my-api\n\ndev\n\nn\n",
         )
 
         assert result.exit_code == 0, result.output
@@ -206,10 +209,10 @@ class TestInitOffersPrecommitSetup:
     the same wizard, so people who want both don't need two commands."""
 
     def _init_local_input(self, extra: str) -> str:
-        # dbt path, continue-anyway, framework, local-or-github (default
-        # local), models location (default), disable_manifest, then
-        # whatever pre-commit answers the test supplies.
-        return "\ny\n\n\n\n\n" + extra
+        # dbt path, continue-anyway, target-kind (default api), framework,
+        # local-or-github (default local), models location (default),
+        # disable_manifest, then whatever pre-commit answers the test gives.
+        return "\ny\n\n\n\n\n\n" + extra
 
     @patch("data_contract_validator.cli._setup_precommit")
     def test_declining_precommit_does_not_create_config(
@@ -432,3 +435,82 @@ class TestResolveGithubRef:
             )
         assert resolved is None
         mock_exists.assert_not_called()
+
+
+class TestHubSpotTargetWiring:
+    """A HubSpot target is configured like any other target block, but its
+    credential deliberately lives in an env var rather than the (committed)
+    config file."""
+
+    def test_wizard_produces_hubspot_config_with_scoped_fields(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("HUBSPOT_ACCESS_TOKEN", "pat-test")
+
+        # dbt path, continue-anyway, target-kind "hubspot", object_type,
+        # fields, disable_manifest, then decline the pre-commit hook.
+        result = CliRunner().invoke(
+            cli,
+            ["init", "--interactive", "--output-dir", str(tmp_path)],
+            input="\ny\nhubspot\ncontacts\nemail, lifecyclestage\n\nn\n",
+        )
+
+        assert result.exit_code == 0, result.output
+        config = yaml.safe_load((tmp_path / ".retl-validator.yml").read_text())
+        assert config["target"]["hubspot"] == {
+            "type": "hubspot",
+            "object_type": "contacts",
+            "fields": ["email", "lifecyclestage"],
+        }
+
+    def test_wizard_never_writes_the_token_into_config(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("HUBSPOT_ACCESS_TOKEN", "pat-super-secret")
+
+        result = CliRunner().invoke(
+            cli,
+            ["init", "--interactive", "--output-dir", str(tmp_path)],
+            input="\ny\nhubspot\ncontacts\nemail\n\nn\n",
+        )
+
+        assert result.exit_code == 0, result.output
+        raw = (tmp_path / ".retl-validator.yml").read_text()
+        assert "pat-super-secret" not in raw
+
+    def test_build_extractor_errors_clearly_without_token(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("HUBSPOT_ACCESS_TOKEN", raising=False)
+
+        with pytest.raises(ValueError, match="HUBSPOT_ACCESS_TOKEN"):
+            _build_target_extractor(
+                "hubspot",
+                {"type": "hubspot", "object_type": "contacts"},
+                str(tmp_path),
+            )
+
+    def test_build_extractor_errors_clearly_without_object_type(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("HUBSPOT_ACCESS_TOKEN", "pat-test")
+
+        with pytest.raises(ValueError, match="object_type"):
+            _build_target_extractor("hubspot", {"type": "hubspot"}, str(tmp_path))
+
+    def test_build_extractor_returns_hubspot_extractor(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HUBSPOT_ACCESS_TOKEN", "pat-test")
+
+        extractor = _build_target_extractor(
+            "hubspot",
+            {"type": "hubspot", "object_type": "deals", "fields": ["amount"]},
+            str(tmp_path),
+        )
+
+        assert isinstance(extractor, HubSpotExtractor)
+        assert extractor.object_type == "deals"
+        assert extractor.fields == {"amount"}
+
+    def test_unknown_target_type_names_the_valid_options(self, tmp_path):
+        with pytest.raises(ValueError, match="local.*github.*hubspot"):
+            _build_target_extractor(
+                "mystery", {"type": "salesforce"}, str(tmp_path)
+            )

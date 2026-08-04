@@ -5,7 +5,7 @@ Prevent production API breaks by validating data contracts between
 your data pipelines and API frameworks.
 """
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 __author__ = "Ogunniran Siji"
 __email__ = "ogunniransiji@gmail.com"
 

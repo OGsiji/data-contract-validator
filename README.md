@@ -208,6 +208,54 @@ populated by a Kafka stream and was never meant to have a dbt model). Use
 `mapping.exclude` to state the latter case explicitly rather than relying on
 `table=True` to imply it.
 
+### HubSpot side (reverse-ETL destinations)
+
+A CRM is the other half of reverse ETL: dbt models don't just feed an API,
+they get **synced into** tools like HubSpot. That destination has a schema
+too — but unlike a codebase it lives in an admin UI, editable by anyone with
+the right permissions, with no code review and no git history. A property
+renamed in a HubSpot settings page can break a sync exactly the way a dropped
+dbt column can, and nothing in your repo would show it.
+
+Point a target at it and the same validation applies:
+
+```yaml
+target:
+  hubspot:
+    type: "hubspot"
+    object_type: "contacts"     # or companies, deals, or a custom object
+    fields:                     # the properties your sync actually writes
+      - email
+      - lifecyclestage
+      - lifetime_value
+```
+
+```bash
+export HUBSPOT_ACCESS_TOKEN=pat-xxxx    # HubSpot Private App token
+contract-validator validate
+```
+
+Two things differ from a code target, both deliberate:
+
+- **`fields` is strongly recommended.** A stock HubSpot object carries
+  100–400+ properties, nearly all irrelevant to any one sync. Comparing
+  against all of them reintroduces exactly the noise the canonical type
+  system exists to eliminate. Omit `fields` and every *writable* property is
+  used — fine for exploring, not for a check that gates a deploy.
+- **Calculated, hidden, and read-only properties are always excluded.** A
+  sync could never populate them, so flagging them would be a permanent,
+  unfixable failure.
+
+Because HubSpot properties have no schema-level "required" flag, a missing
+field is a **warning** by default. Use
+[`mapping.critical_columns`](#when-do-i-need-mapping) to mark the ones that
+are genuinely load-bearing for your sync so they fail the build instead.
+
+> 🔑 The token is read from `HUBSPOT_ACCESS_TOKEN`, never stored in
+> `.retl-validator.yml` — that file is meant to be committed. Create one under
+> HubSpot **Settings → Integrations → Private Apps** with the
+> `crm.schemas.<object>.read` scope.
+
 ## 🚦 What gets flagged
 
 | Severity | Meaning | Example |
@@ -370,6 +418,23 @@ mapping:
 Anything not listed is validated normally — including `table=True` classes,
 which are treated the same as any other target and are not silently skipped.
 
+`mapping.critical_columns` is the mirror image of `exclude`: it **escalates**
+a missing column to build-failing CRITICAL even when the extractor reported
+it as optional. Some targets have no schema-level "required" concept at all —
+a HubSpot property has no required flag — so without this, every missing
+field there could only ever warn:
+
+```yaml
+mapping:
+  critical_columns:
+    contacts:
+      - email            # the sync is meaningless without these
+      - lifecyclestage
+```
+
+Like `exclude`, this is business knowledge no extractor can infer, and it
+works for any target type.
+
 ## 🐍 Python API
 
 ```python
@@ -448,7 +513,7 @@ contract-validator validate --output github       # GitHub Actions annotations
 ## 🚀 Supported frameworks
 
 **Source:** dbt (all adapters — Snowflake, BigQuery, Redshift, Postgres, …).
-**Target:** FastAPI (Pydantic v2 + SQLModel).
+**Targets:** FastAPI (Pydantic v2 + SQLModel), HubSpot CRM.
 
 The extractor architecture is intentionally pluggable (`BaseExtractor` →
 `Dict[str, Schema]` with canonical types), so additional sources/targets can be

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-04
+
+### Added
+- **HubSpot targets are now configurable from the CLI and config file**, not
+  just the Python API. `init --interactive` asks what consumes the data
+  (API codebase vs. HubSpot) and walks through object type and field
+  scoping; `contract-validator test` checks the object type and token are
+  set; `validate` dispatches on `type: hubspot` like any other target.
+- The HubSpot token is read from the `HUBSPOT_ACCESS_TOKEN` environment
+  variable and is deliberately never written into `.retl-validator.yml`,
+  which is meant to be committed.
+- Target dispatch is now keyed on the `type` field (`local` / `github` /
+  `hubspot`) rather than the config block's name, so a target block can be
+  named whatever reads best, and an unknown type produces an error naming
+  the valid options instead of a confusing FastAPI-specific failure.
+
 ## [1.2.0] - 2026-07-04
 
 ### Added

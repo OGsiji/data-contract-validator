@@ -11,6 +11,7 @@ from typing import Optional, Dict, Any
 from .core.validator import ContractValidator
 from .extractors.dbt import DBTExtractor
 from .extractors.fastapi import FastAPIExtractor
+from .extractors.hubspot import HubSpotExtractor
 
 
 def _github_path_exists(
@@ -118,6 +119,80 @@ def _resolve_github_ref(
     return None
 
 
+#: Env var holding a HubSpot Private App token. Kept out of the config file
+#: on purpose -- a CRM token is a credential, and .retl-validator.yml is
+#: meant to be committed.
+HUBSPOT_TOKEN_ENV = "HUBSPOT_ACCESS_TOKEN"
+
+
+def _build_target_extractor(
+    target_name: Optional[str],
+    target_config: Dict[str, Any],
+    dbt_path: str,
+    fastapi_ref: Optional[str] = None,
+):
+    """Build the target extractor described by a config file's `target` block.
+
+    Dispatches on ``type`` (``local`` / ``github`` / ``hubspot``) rather than
+    on the block's key, so a target can be named whatever reads best.
+    """
+    target_type = target_config.get("type")
+
+    if target_type == "hubspot":
+        access_token = os.environ.get(HUBSPOT_TOKEN_ENV)
+        if not access_token:
+            raise ValueError(
+                f"HubSpot target requires the {HUBSPOT_TOKEN_ENV} environment "
+                f"variable (a Private App token, 'pat-...'). "
+                f"Set it with: export {HUBSPOT_TOKEN_ENV}=pat-xxxx"
+            )
+
+        object_type = target_config.get("object_type")
+        if not object_type:
+            raise ValueError(
+                "HubSpot target requires 'object_type' (e.g. contacts, "
+                "companies, deals, or a custom object's internal name)"
+            )
+
+        fields = target_config.get("fields")
+        click.echo(f"🎯 Using HubSpot object: {object_type}")
+        return HubSpotExtractor(
+            access_token=access_token, object_type=object_type, fields=fields
+        )
+
+    if target_type == "local":
+        local_path = target_config.get("path")
+        path = Path(local_path)
+        if path.is_file():
+            click.echo(f"📄 Using FastAPI models file: {local_path}")
+            return FastAPIExtractor.from_local_file(local_path)
+        if path.is_dir():
+            click.echo(f"📁 Using FastAPI models directory: {local_path}")
+            return FastAPIExtractor.from_local_directory(local_path)
+        raise ValueError(f"Path does not exist: {local_path}")
+
+    if target_type == "github":
+        github_token = os.environ.get("GITHUB_TOKEN")
+        # An explicit --fastapi-ref beats the config's target.*.ref, and
+        # either explicit value beats branch auto-detection.
+        explicit_ref = fastapi_ref or target_config.get("ref")
+        repo = target_config.get("repo")
+        path = target_config.get("path", "app/models")
+        resolved_ref = _resolve_github_ref(
+            explicit_ref, repo, path, github_token, dbt_path
+        )
+        suffix = f"@{resolved_ref}" if resolved_ref else ""
+        click.echo(f"📁 Using FastAPI models: {repo}/{path}{suffix}")
+        return FastAPIExtractor.from_github_repo(
+            repo=repo, path=path, token=github_token, ref=resolved_ref
+        )
+
+    raise ValueError(
+        f"Unknown target type {target_type!r} for target "
+        f"{target_name!r} — expected 'local', 'github', or 'hubspot'"
+    )
+
+
 def _github_auth_hint(exists: Optional[bool], token: Optional[str]) -> Optional[str]:
     """Hint to print when a path lookup came back missing and no token was used.
 
@@ -220,6 +295,81 @@ def init(interactive: bool, framework: str, dbt_path: str, output_dir: str, forc
         )
 
 
+def _interactive_hubspot_setup(dbt_path: str) -> Dict[str, Any]:
+    """Wizard branch for a HubSpot CRM target.
+
+    Deliberately does NOT ask for the access token -- it's a credential, and
+    .retl-validator.yml is meant to be committed. It's read from the
+    HUBSPOT_ACCESS_TOKEN env var at validate time instead.
+    """
+    click.echo()
+    object_type = click.prompt(
+        "3️⃣  Which HubSpot object does your sync write to?",
+        default="contacts",
+        show_default=True,
+    ).strip()
+
+    click.echo()
+    click.echo(
+        "   💡 A stock HubSpot object has 100-400+ properties, nearly all "
+        "unrelated to\n      your sync. Listing the ones you actually "
+        "populate keeps the check meaningful."
+    )
+    raw_fields = click.prompt(
+        "4️⃣  Which properties does your sync populate? (comma-separated, "
+        "blank = all writable)",
+        default="",
+        show_default=False,
+    )
+    fields = [f.strip() for f in raw_fields.split(",") if f.strip()]
+
+    if fields:
+        click.echo(f"   ✅ Scoped to {len(fields)} propert{'y' if len(fields) == 1 else 'ies'}")
+    else:
+        click.echo(
+            "   ⚠️  No fields listed — every writable property will be compared, "
+            "which is noisy. You can add a 'fields:' list to the config later."
+        )
+
+    if not os.environ.get(HUBSPOT_TOKEN_ENV):
+        click.echo()
+        click.echo(f"   ⚠️  {HUBSPOT_TOKEN_ENV} is not set in this shell.")
+        click.echo(
+            f"      Before running validate: export {HUBSPOT_TOKEN_ENV}=pat-xxxx"
+        )
+        click.echo(
+            "      (HubSpot Settings → Integrations → Private Apps, with the "
+            "crm.schemas.<object>.read scope)"
+        )
+
+    click.echo()
+    disable_manifest = click.confirm(
+        "5️⃣  Disable manifest.json parsing? (recommended if you have CTE-based models)",
+        default=True,
+    )
+
+    target: Dict[str, Any] = {"type": "hubspot", "object_type": object_type}
+    if fields:
+        target["fields"] = fields
+
+    return {
+        "version": "1.0",
+        "name": f"contracts-{Path.cwd().name}",
+        "source": {
+            "dbt": {
+                "project_path": dbt_path,
+                "auto_compile": True,
+                "disable_manifest": disable_manifest,
+            }
+        },
+        "target": {"hubspot": target},
+        "validation": {
+            "fail_on": ["missing_tables", "missing_required_columns"],
+            "warn_on": ["type_mismatches"],
+        },
+    }
+
+
 def _interactive_setup() -> Dict[str, Any]:
     """Interactive setup wizard with directory support."""
     click.echo("📋 Quick Setup (a handful of questions):")
@@ -241,10 +391,23 @@ def _interactive_setup() -> Dict[str, Any]:
     else:
         click.echo("   ✅ DBT project found")
 
-    # Question 2: API framework
+    # Question 2: what kind of thing consumes this data? An API codebase's
+    # schema lives in source files; a CRM's lives in an admin UI behind an
+    # API, so the two need different questions from here on.
+    click.echo()
+    target_kind = click.prompt(
+        "2️⃣  What consumes this data?",
+        type=click.Choice(["api", "hubspot"]),
+        default="api",
+        show_default=True,
+    )
+
+    if target_kind == "hubspot":
+        return _interactive_hubspot_setup(dbt_path)
+
     click.echo()
     framework = click.prompt(
-        "2️⃣  What API framework do you use?",
+        "3️⃣  What API framework do you use?",
         type=click.Choice(["fastapi", "django", "flask", "other"]),
         default="fastapi",
         show_default=True,
@@ -268,7 +431,7 @@ def _interactive_setup() -> Dict[str, Any]:
     # suggested default as a repo.
     click.echo()
     location_kind = click.prompt(
-        f"3️⃣  Are your {location_noun} in this local project, or a different GitHub repo?",
+        f"4️⃣  Are your {location_noun} in this local project, or a different GitHub repo?",
         type=click.Choice(["local", "github"]),
         default="local",
         show_default=True,
@@ -277,11 +440,11 @@ def _interactive_setup() -> Dict[str, Any]:
     click.echo()
     if location_kind == "github":
         repo = click.prompt(
-            "4️⃣  GitHub repo (org/repo)", default="", show_default=False
+            "5️⃣  GitHub repo (org/repo)", default="", show_default=False
         )
         while "/" not in repo or repo.count("/") != 1:
             click.echo("   ⚠️  Expected the form 'org/repo', e.g. 'my-org/my-api'")
-            repo = click.prompt("4️⃣  GitHub repo (org/repo)")
+            repo = click.prompt("5️⃣  GitHub repo (org/repo)")
 
         path = click.prompt(
             f"   Path to your {location_noun} within {repo} (file or directory)",
@@ -314,7 +477,7 @@ def _interactive_setup() -> Dict[str, Any]:
         # than block setup on something that isn't actually wrong.
     else:
         api_location = click.prompt(
-            f"4️⃣  Where are your {location_noun}? (file or directory)",
+            f"5️⃣  Where are your {location_noun}? (file or directory)",
             default=default_path,
             show_default=True,
         )
@@ -348,7 +511,7 @@ def _interactive_setup() -> Dict[str, Any]:
     # Question 5: manifest parsing
     click.echo()
     disable_manifest = click.confirm(
-        "5️⃣  Disable manifest.json parsing? (recommended if you have CTE-based models)",
+        "6️⃣  Disable manifest.json parsing? (recommended if you have CTE-based models)",
         default=True,
     )
 
@@ -674,6 +837,29 @@ def _test_setup(config_file: Path) -> bool:
                         "      ⚠️  Could not verify path (network error or rate limit)"
                     )
 
+            elif target_info.get("type") == "hubspot":
+                object_type = target_info.get("object_type")
+                click.echo(f"      🎯 HubSpot object: {object_type or '(not set)'}")
+
+                if not object_type:
+                    click.echo("      ❌ 'object_type' is required for a HubSpot target")
+                    all_passed = False
+                elif not os.environ.get(HUBSPOT_TOKEN_ENV):
+                    click.echo(f"      ❌ {HUBSPOT_TOKEN_ENV} is not set")
+                    click.echo(
+                        f"         💡 export {HUBSPOT_TOKEN_ENV}=pat-xxxx "
+                        f"(a HubSpot Private App token)"
+                    )
+                    all_passed = False
+                else:
+                    click.echo(f"      ✅ {HUBSPOT_TOKEN_ENV} is set")
+                    if not target_info.get("fields"):
+                        click.echo(
+                            "      ⚠️  No 'fields' list — will compare against every "
+                            "writable property on the object, which is noisy. "
+                            "List the fields your sync actually populates."
+                        )
+
             else:
                 click.echo(f"      ⚠️  Unknown target type: {target_info.get('type')}")
                 all_passed = False
@@ -967,43 +1153,15 @@ def _run_validation(
             )
         else:
             # Get from config
-            target_config = list(config_data.get("target", {}).values())[0]
-            if target_config.get("type") == "local":
-                local_path = target_config.get("path")
-                path = Path(local_path)
-
-                if path.is_file():
-                    fastapi_extractor = FastAPIExtractor.from_local_file(local_path)
-                elif path.is_dir():
-                    fastapi_extractor = FastAPIExtractor.from_local_directory(
-                        local_path
-                    )
-                else:
-                    raise ValueError(f"Path does not exist: {local_path}")
-
-            elif target_config.get("type") == "github":
-                github_token = os.environ.get("GITHUB_TOKEN")
-                # CLI --fastapi-ref overrides the config's target.*.ref, same
-                # precedence as the other --fastapi-* overrides. Either one
-                # explicit beats branch auto-detection.
-                explicit_ref = fastapi_ref or target_config.get("ref")
-                repo = target_config.get("repo")
-                path = target_config.get("path", "app/models")
-                resolved_ref = _resolve_github_ref(
-                    explicit_ref, repo, path, github_token, dbt_path
-                )
-                fastapi_extractor = FastAPIExtractor.from_github_repo(
-                    repo=repo,
-                    path=path,
-                    token=github_token,
-                    ref=resolved_ref,
-                )
-            else:
-                click.echo("❌ No valid FastAPI configuration found")
-                sys.exit(1)
+            target_name, target_config = next(
+                iter(config_data.get("target", {}).items()), (None, {})
+            )
+            fastapi_extractor = _build_target_extractor(
+                target_name, target_config, dbt_path, fastapi_ref
+            )
 
     except Exception as e:
-        click.echo(f"❌ Error initializing FastAPI extractor: {e}")
+        click.echo(f"❌ Error initializing target extractor: {e}")
         sys.exit(1)
 
     # Run validation
