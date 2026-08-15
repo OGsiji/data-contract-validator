@@ -1,31 +1,45 @@
 # 🛡️ Data Contract Validator
 
-> **Catch breaking changes between your dbt models and your FastAPI/Pydantic APIs — before they hit production.**
+> **Your dbt models don't stop at the warehouse. This checks that whatever they
+> feed — a CRM, an API — still gets the shape it expects, and fails the PR when
+> it doesn't.**
 
 [![PyPI version](https://badge.fury.io/py/data-contract-validator.svg)](https://badge.fury.io/py/data-contract-validator)
 [![Tests](https://github.com/OGsiji/data-contract-validator/workflows/Tests/badge.svg)](https://github.com/OGsiji/data-contract-validator/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## 🎯 What it solves
+## 🎯 The problem
 
-Your analytics team changes a dbt model. Your API team's FastAPI service still
-expects the old shape. Nobody notices until production 500s at 2 AM.
+dbt gives you tests, git history and code review for everything up to the
+warehouse. Past that, nothing.
 
-This tool sits on that boundary. It extracts the schema your **dbt models
-produce** and the schema your **Pydantic models expect**, compares them, and
-fails CI when the data side can no longer satisfy the API side.
+Your models get **synced into** a CRM. They get **read by** an API. Those
+destinations have schemas too, and they drift:
+
+- **Someone renames a property in a HubSpot settings page.** No pull request,
+  no git history, no review — a dropdown and a save button. Your sync keeps
+  running and quietly writes into a field that no longer means what it used
+  to. Nobody finds out until a campaign goes out against bad data.
+- **Your analytics team drops a column.** The FastAPI service still expects
+  it. Nobody notices until production 500s at 2 AM.
+
+Neither shows up in your dbt tests, because dbt doesn't know those
+destinations exist. The contract between them lives in someone's memory.
+
+This tool sits on that boundary. It reads what your **dbt models actually
+produce**, reads what the **destination actually expects**, compares them, and
+fails CI when they've drifted apart.
 
 ```
-   dbt models                 Data Contract Validator                FastAPI / Pydantic
-(what the pipeline   ──▶   extract → normalize → compare   ◀──   (what the API expects)
-    produces)                     ↓
-                          critical issues block the build
+   dbt models                Data Contract Validator              destinations
+(what the pipeline  ──▶  extract → normalize → compare  ◀──  HubSpot CRM
+    produces)                      ↓                          FastAPI / Pydantic
+                        critical issues block the build
 ```
 
 ### Built for trust
 
-A check that gates a deploy is only useful if it doesn't cry wolf. v1.1
-re-architected extraction around that principle:
+A check that gates a deploy is only useful if it doesn't cry wolf:
 
 - **Canonical types** — dbt `varchar` and Pydantic `str` are understood to be
   the same thing, so you don't get drowned in fake "type mismatch" warnings.
@@ -51,6 +65,24 @@ contract-validator test
 contract-validator validate
 ```
 
+Guarding a reverse-ETL sync into HubSpot takes one block of config:
+
+```yaml
+target:
+  hubspot:
+    type: "hubspot"
+    object_type: "contacts"     # or companies, deals, or a custom object
+    fields:                     # the properties your sync actually writes
+      - email
+      - lifecyclestage
+      - lifetime_value
+```
+
+```bash
+export HUBSPOT_ACCESS_TOKEN=pat-xxxx    # HubSpot Private App token
+contract-validator validate
+```
+
 ## 🚀 Getting started, step by step
 
 If you're setting this up on a project for the first time, the order below
@@ -67,16 +99,16 @@ avoids the sharp edges:
    ```bash
    contract-validator init --interactive
    ```
-   You'll be asked: where your dbt project is, which API framework you use,
-   whether your models live in this local project or a different GitHub
-   repo, and then the local path (or the `org/repo` + path within it, plus
-   an optional branch/tag/commit — blank reads the repo's default branch).
-   Local-vs-GitHub is asked explicitly rather than guessed from the path's
-   shape — a local path like `app/models` is syntactically identical to a
-   GitHub `org/repo` string, so there's no reliable way to infer which one
-   you mean. If you pick GitHub, it checks the path actually exists before
-   writing the config — so a typo surfaces here instead of at `validate`
-   time.
+   You'll be asked: where your dbt project is, which destination you're
+   validating against, whether your models live in this local project or a
+   different GitHub repo, and then the local path (or the `org/repo` + path
+   within it, plus an optional branch/tag/commit — blank reads the repo's
+   default branch). Local-vs-GitHub is asked explicitly rather than guessed
+   from the path's shape — a local path like `app/models` is syntactically
+   identical to a GitHub `org/repo` string, so there's no reliable way to
+   infer which one you mean. If you pick GitHub, it checks the path actually
+   exists before writing the config — so a typo surfaces here instead of at
+   `validate` time.
 
    `init` refuses to touch an existing `.retl-validator.yml` or workflow
    file — it won't clobber hand-added `mapping` entries just because you
@@ -103,8 +135,8 @@ avoids the sharp edges:
    contract-validator test
    ```
    Confirms the config parses, the dbt project is found, and the target
-   (local path or GitHub path) is reachable. If this fails, `validate` will
-   fail the same way — fix it here first.
+   (local path, GitHub path, or CRM connection) is reachable. If this fails,
+   `validate` will fail the same way — fix it here first.
 
 6. **Run it**:
    ```bash
@@ -120,7 +152,7 @@ avoids the sharp edges:
    - A table that's genuinely populated by something other than dbt (e.g. a
      separate streaming pipeline) and has no source model on purpose → add
      it to `mapping.exclude`. `table=True` alone is **not** used to infer
-     this automatically — see [FastAPI side](#fastapi-side) for why.
+     this automatically — see [FastAPI / Pydantic](#fastapi--pydantic) for why.
 
 8. **For accurate type-checking** (not just column-presence checks), run
    `dbt docs generate` before `validate` so it picks up `catalog.json` (Tier 1,
@@ -172,52 +204,15 @@ doesn't mirror your dbt repo's branch names — it silently falls back to the
 target's default branch, so this never turns into a spurious failure. An
 explicit `--fastapi-ref` or `target.*.ref` always overrides auto-matching.
 
-## 🔍 How extraction works (and why it's accurate)
+## 🎯 Destinations
 
-### dbt side — tiered, best-source-wins
+### HubSpot CRM (reverse ETL)
 
-| Tier | Source | Types | Confidence | Notes |
-|---|---|---|---|---|
-| 1 | `target/catalog.json` | **Real warehouse types** | high | Produced by `dbt docs generate`. Most accurate. |
-| 2 | `sqlglot` SQL parse | Inferred (often unknown) | medium | Trusted column **names**; enriched with documented types from `manifest.json`. Detects `SELECT *`. |
-| 3 | regex parse | Guessed | low | Last resort. Never used to hard-fail a build. |
-
-The tool auto-detects what's available and degrades gracefully — so it works
-offline in pre-commit **and** with full type fidelity in a warehouse-connected
-CI job.
-
-> 💡 **Tip:** run `dbt docs generate` in CI before validating to unlock Tier 1
-> (real types). Without it, you still get accurate column-presence checks from
-> Tier 2. The workflow `init` generates includes this step already, commented
-> out — it needs your warehouse adapter and credentials filled in, which
-> can't be guessed, so it isn't active by default.
-
-### FastAPI side
-
-Pydantic / SQLModel classes are parsed from source with Python's `ast` (no
-imports executed). `Optional[...]` controls whether a field is required.
-An explicit `__tablename__` is used as the table name when present;
-otherwise the class name is converted to `snake_case`.
-
-`table=True` SQLModel classes are validated the same as any other class —
-they are **not** skipped. Whether a table is meant to come from dbt is
-business knowledge that isn't recoverable from the Python source: two
-structurally identical `table=True` classes can need opposite treatment (one
-is a normal dbt-fed table your API also returns directly; another is
-populated by a Kafka stream and was never meant to have a dbt model). Use
-`mapping.exclude` to state the latter case explicitly rather than relying on
-`table=True` to imply it.
-
-### HubSpot side (reverse-ETL destinations)
-
-A CRM is the other half of reverse ETL: dbt models don't just feed an API,
-they get **synced into** tools like HubSpot. That destination has a schema
-too — but unlike a codebase it lives in an admin UI, editable by anyone with
-the right permissions, with no code review and no git history. A property
-renamed in a HubSpot settings page can break a sync exactly the way a dropped
-dbt column can, and nothing in your repo would show it.
-
-Point a target at it and the same validation applies:
+A CRM is the far end of reverse ETL, and the least guarded surface in the
+whole pipeline. Unlike a codebase, its schema lives in an admin UI, editable
+by anyone with the right permissions, with no code review and no git history.
+A property renamed in a settings page breaks a sync exactly the way a dropped
+dbt column does — and nothing in your repo would show it.
 
 ```yaml
 target:
@@ -256,11 +251,47 @@ are genuinely load-bearing for your sync so they fail the build instead.
 > HubSpot **Settings → Integrations → Private Apps** with the
 > `crm.schemas.<object>.read` scope.
 
+### FastAPI / Pydantic
+
+Pydantic / SQLModel classes are parsed from source with Python's `ast` (no
+imports executed). `Optional[...]` controls whether a field is required.
+An explicit `__tablename__` is used as the table name when present;
+otherwise the class name is converted to `snake_case`.
+
+`table=True` SQLModel classes are validated the same as any other class —
+they are **not** skipped. Whether a table is meant to come from dbt is
+business knowledge that isn't recoverable from the Python source: two
+structurally identical `table=True` classes can need opposite treatment (one
+is a normal dbt-fed table your API also returns directly; another is
+populated by a Kafka stream and was never meant to have a dbt model). Use
+`mapping.exclude` to state the latter case explicitly rather than relying on
+`table=True` to imply it.
+
+## 🔍 How extraction works (and why it's accurate)
+
+### dbt side — tiered, best-source-wins
+
+| Tier | Source | Types | Confidence | Notes |
+|---|---|---|---|---|
+| 1 | `target/catalog.json` | **Real warehouse types** | high | Produced by `dbt docs generate`. Most accurate. |
+| 2 | `sqlglot` SQL parse | Inferred (often unknown) | medium | Trusted column **names**; enriched with documented types from `manifest.json`. Detects `SELECT *`. |
+| 3 | regex parse | Guessed | low | Last resort. Never used to hard-fail a build. |
+
+The tool auto-detects what's available and degrades gracefully — so it works
+offline in pre-commit **and** with full type fidelity in a warehouse-connected
+CI job.
+
+> 💡 **Tip:** run `dbt docs generate` in CI before validating to unlock Tier 1
+> (real types). Without it, you still get accurate column-presence checks from
+> Tier 2. The workflow `init` generates includes this step already, commented
+> out — it needs your warehouse adapter and credentials filled in, which
+> can't be guessed, so it isn't active by default.
+
 ## 🚦 What gets flagged
 
 | Severity | Meaning | Example |
 |---|---|---|
-| 🚨 **Critical** | Blocks the build | API requires a column the dbt model no longer produces |
+| 🚨 **Critical** | Blocks the build | Destination requires a column the dbt model no longer produces |
 | ⚠️ **Warning** | Worth a look, non-blocking | A real type mismatch, or a missing column on a model we couldn't fully resolve |
 
 ```bash
@@ -291,6 +322,13 @@ source:
     disable_manifest: false
 
 target:
+  # A reverse-ETL destination...
+  hubspot:
+    type: "hubspot"
+    object_type: "contacts"
+    fields: [email, lifecyclestage, lifetime_value]
+
+  # ...and/or a code target.
   fastapi:
     # GitHub repo:
     type: "github"
@@ -308,7 +346,7 @@ target:
 # Optional: explicit mapping for when names don't line up by convention.
 mapping:
   tables:
-    # target (Pydantic) table : source (dbt) model
+    # target table : source (dbt) model
     user_analytics: user_analytics_summary
   columns:
     user_analytics:
@@ -318,6 +356,10 @@ mapping:
   # not dbt) -- see "When do I need mapping?" below.
   exclude:
     - feed_interaction
+  # Missing columns that should fail the build rather than warn.
+  critical_columns:
+    contacts:
+      - email
 
 validation:
   fail_on: ["missing_tables", "missing_required_columns"]
@@ -387,8 +429,8 @@ To make that switch:
 3. Replace `secrets.GITHUB_TOKEN` with `secrets.API_REPO_TOKEN` (or
    whatever you named it) in the workflow's `env:` block.
 
-Skip all of this for a `local` target — `init` omits the whole `env:` block
-since a local target never talks to the GitHub API at all.
+Skip all of this for a `local` or CRM target — `init` omits the whole `env:`
+block, since neither talks to the GitHub API at all.
 
 ### When do I need `mapping`?
 
@@ -478,6 +520,7 @@ jobs:
       - run: contract-validator validate --output github
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HUBSPOT_ACCESS_TOKEN: ${{ secrets.HUBSPOT_ACCESS_TOKEN }}
 ```
 
 `GITHUB_TOKEN` here is only needed if `target` is a `github` repo (`init`
@@ -497,7 +540,7 @@ contract-validator setup-precommit --install-hooks
 ```yaml
 repos:
   - repo: https://github.com/OGsiji/data-contract-validator
-    rev: v1.1.0
+    rev: v1.3.0
     hooks:
       - id: contract-validation
 ```
@@ -510,15 +553,16 @@ contract-validator validate --output json        # machine-readable for CI
 contract-validator validate --output github       # GitHub Actions annotations
 ```
 
-## 🚀 Supported frameworks
+## 🚀 Supported sources and destinations
 
 **Source:** dbt (all adapters — Snowflake, BigQuery, Redshift, Postgres, …).
-**Targets:** FastAPI (Pydantic v2 + SQLModel), HubSpot CRM.
+**Destinations:** HubSpot CRM, FastAPI (Pydantic v2 + SQLModel).
 
 The extractor architecture is intentionally pluggable (`BaseExtractor` →
-`Dict[str, Schema]` with canonical types), so additional sources/targets can be
-added without touching the validator. [Open an issue](https://github.com/OGsiji/data-contract-validator/issues)
-to request one.
+`Dict[str, Schema]` with canonical types), so additional sources and
+destinations can be added without touching the validator.
+[Open an issue](https://github.com/OGsiji/data-contract-validator/issues) to
+request one.
 
 ## 🛠️ Development & testing
 
@@ -556,10 +600,11 @@ class MyExtractor(BaseExtractor):
 
 ## 🗺️ Roadmap
 
+- More reverse-ETL destinations (Salesforce, Braze, Customer.io)
 - Real compatibility semantics (nullability, additive vs. breaking changes)
 - Reporter/logging abstraction (quiet/embeddable core)
 - A canonical, language-neutral contract artifact + baseline/snapshot diffing
-- More targets (Django, SQLAlchemy, GraphQL, OpenAPI)
+- More code targets (Django, SQLAlchemy, GraphQL, OpenAPI)
 
 ## 📄 License
 
